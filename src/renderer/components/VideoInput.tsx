@@ -90,28 +90,30 @@ export function VideoInput({ onSourceChange, onFileChange, onUrlChange, disabled
 
 const styles = {
   container: {
-    marginBottom: '20px'
+    marginBottom: 'clamp(15px, 2vw, 20px)'
   },
   header: {
-    margin: '0 0 10px 0',
-    fontSize: '16px',
+    margin: '0 0 clamp(8px, 1.5vw, 10px) 0',
+    fontSize: 'clamp(14px, 2.5vw, 16px)',
     fontWeight: '600' as const
   },
   toggleContainer: {
     display: 'flex',
-    gap: '10px',
-    marginBottom: '15px'
+    gap: 'clamp(8px, 1.5vw, 10px)',
+    marginBottom: 'clamp(12px, 2vw, 15px)',
+    flexWrap: 'wrap' as const
   },
   toggleButton: {
-    flex: 1,
-    padding: '10px',
+    flex: '1 1 120px',
+    minWidth: '100px',
+    padding: 'clamp(8px, 1.5vw, 10px)',
     borderWidth: '1px',
     borderStyle: 'solid',
     borderColor: '#ccc',
     backgroundColor: '#f5f5f5',
     cursor: 'pointer',
     borderRadius: '4px',
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 2vw, 14px)',
     transition: 'all 0.2s'
   },
   toggleButtonActive: {
@@ -121,22 +123,25 @@ const styles = {
   },
   inputGroup: {
     display: 'flex',
-    gap: '10px'
+    gap: 'clamp(8px, 1.5vw, 10px)',
+    flexWrap: 'wrap' as const
   },
   input: {
-    flex: 1,
-    padding: '10px',
+    flex: '1 1 200px',
+    minWidth: '150px',
+    padding: 'clamp(8px, 1.5vw, 10px)',
     border: '1px solid #ccc',
     borderRadius: '4px',
-    fontSize: '14px'
+    fontSize: 'clamp(12px, 2vw, 14px)'
   },
   browseButton: {
-    padding: '10px 20px',
+    padding: 'clamp(8px, 1.5vw, 10px) clamp(15px, 2.5vw, 20px)',
     backgroundColor: '#28a745',
     color: 'white',
     border: 'none',
     borderRadius: '4px',
     cursor: 'pointer',
-    fontSize: '14px'
+    fontSize: 'clamp(12px, 2vw, 14px)',
+    whiteSpace: 'nowrap' as const
   }
 };

@@ -129,48 +129,52 @@ const styles = {
     minHeight: '100vh',
     backgroundColor: '#f8f9fa',
     display: 'flex',
-    flexDirection: 'column' as const
+    flexDirection: 'column' as const,
+    overflow: 'auto'
   },
   header: {
     backgroundColor: '#343a40',
     color: 'white',
-    padding: '20px 30px',
-    borderBottom: '3px solid #007bff'
+    padding: 'clamp(15px, 3vw, 20px) clamp(20px, 4vw, 30px)',
+    borderBottom: '3px solid #007bff',
+    flexShrink: 0
   },
   title: {
     margin: '0 0 5px 0',
-    fontSize: '28px',
+    fontSize: 'clamp(20px, 4vw, 28px)',
     fontWeight: '700' as const
   },
   subtitle: {
     margin: 0,
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 2vw, 14px)',
     opacity: 0.9
   },
   main: {
     flex: 1,
-    padding: '30px',
-    maxWidth: '1200px',
+    padding: 'clamp(15px, 3vw, 30px)',
+    maxWidth: '1400px',
     width: '100%',
     margin: '0 auto',
-    boxSizing: 'border-box' as const
+    boxSizing: 'border-box' as const,
+    overflow: 'auto'
   },
   section: {
     backgroundColor: 'white',
-    padding: '25px',
+    padding: 'clamp(15px, 3vw, 25px)',
     borderRadius: '8px',
     boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-    marginBottom: '20px'
+    marginBottom: 'clamp(15px, 2vw, 20px)'
   },
   footer: {
     backgroundColor: '#343a40',
     color: 'white',
-    padding: '15px 30px',
-    textAlign: 'center' as const
+    padding: 'clamp(10px, 2vw, 15px) clamp(20px, 4vw, 30px)',
+    textAlign: 'center' as const,
+    flexShrink: 0
   },
   footerText: {
     margin: 0,
-    fontSize: '12px',
+    fontSize: 'clamp(10px, 1.5vw, 12px)',
     opacity: 0.8
   }
 };

@@ -71,36 +71,38 @@ export function ProgressDisplay({ stage, progress, logs, onClearLogs }: Progress
 
 const styles = {
   container: {
-    marginBottom: '20px'
+    marginBottom: 'clamp(15px, 2vw, 20px)'
   },
   header: {
-    margin: '0 0 10px 0',
-    fontSize: '16px',
+    margin: '0 0 clamp(8px, 1.5vw, 10px) 0',
+    fontSize: 'clamp(14px, 2.5vw, 16px)',
     fontWeight: '600' as const
   },
   stageInfo: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: '8px'
+    marginBottom: 'clamp(6px, 1vw, 8px)',
+    flexWrap: 'wrap' as const,
+    gap: '8px'
   },
   stageName: {
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 2vw, 14px)',
     fontWeight: '500' as const,
     color: '#333'
   },
   percentage: {
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 2vw, 14px)',
     fontWeight: '600' as const,
     color: '#007bff'
   },
   progressBarContainer: {
     width: '100%',
-    height: '24px',
+    height: 'clamp(20px, 3vw, 24px)',
     backgroundColor: '#e9ecef',
     borderRadius: '4px',
     overflow: 'hidden',
-    marginBottom: '20px'
+    marginBottom: 'clamp(15px, 2vw, 20px)'
   },
   progressBar: {
     height: '100%',
@@ -109,23 +111,25 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     color: 'white',
-    fontSize: '12px',
+    fontSize: 'clamp(10px, 1.5vw, 12px)',
     fontWeight: '600' as const
   },
   logsHeader: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: '8px'
+    marginBottom: 'clamp(6px, 1vw, 8px)',
+    gap: '8px',
+    flexWrap: 'wrap' as const
   },
   logsTitle: {
     margin: 0,
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 2vw, 14px)',
     fontWeight: '600' as const
   },
   clearButton: {
-    padding: '4px 12px',
-    fontSize: '12px',
+    padding: 'clamp(4px, 0.8vw, 6px) clamp(10px, 1.5vw, 12px)',
+    fontSize: 'clamp(11px, 1.5vw, 12px)',
     backgroundColor: '#6c757d',
     color: 'white',
     border: 'none',
@@ -133,14 +137,14 @@ const styles = {
     cursor: 'pointer'
   },
   logsContainer: {
-    height: '250px',
+    height: 'clamp(180px, 25vh, 250px)',
     overflowY: 'auto' as const,
     backgroundColor: '#1e1e1e',
     color: '#d4d4d4',
-    padding: '12px',
+    padding: 'clamp(10px, 1.5vw, 12px)',
     borderRadius: '4px',
     fontFamily: 'Consolas, Monaco, monospace',
-    fontSize: '12px',
+    fontSize: 'clamp(10px, 1.5vw, 12px)',
     lineHeight: '1.5'
   },
   emptyLogs: {
@@ -149,6 +153,7 @@ const styles = {
   },
   logLine: {
     marginBottom: '2px',
-    whiteSpace: 'pre-wrap' as const
+    whiteSpace: 'pre-wrap' as const,
+    wordBreak: 'break-word' as const
   }
 };

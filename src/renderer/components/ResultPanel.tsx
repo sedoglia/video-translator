@@ -44,77 +44,84 @@ export function ResultPanel({ result }: ResultPanelProps) {
 
 const styles = {
   container: {
-    marginTop: '20px'
+    marginTop: 'clamp(15px, 2vw, 20px)'
   },
   header: {
-    margin: '0 0 10px 0',
-    fontSize: '16px',
+    margin: '0 0 clamp(8px, 1.5vw, 10px) 0',
+    fontSize: 'clamp(14px, 2.5vw, 16px)',
     fontWeight: '600' as const
   },
   successContainer: {
     display: 'flex',
-    gap: '15px',
-    padding: '20px',
+    gap: 'clamp(10px, 2vw, 15px)',
+    padding: 'clamp(15px, 2.5vw, 20px)',
     backgroundColor: '#d4edda',
     border: '1px solid #c3e6cb',
-    borderRadius: '4px'
+    borderRadius: '4px',
+    flexWrap: 'wrap' as const
   },
   successIcon: {
-    fontSize: '32px',
+    fontSize: 'clamp(28px, 4vw, 32px)',
     color: '#28a745',
-    fontWeight: 'bold' as const
+    fontWeight: 'bold' as const,
+    flexShrink: 0
   },
   successContent: {
-    flex: 1
+    flex: '1 1 200px',
+    minWidth: '150px'
   },
   successTitle: {
-    margin: '0 0 10px 0',
-    fontSize: '18px',
+    margin: '0 0 clamp(8px, 1.5vw, 10px) 0',
+    fontSize: 'clamp(16px, 2.5vw, 18px)',
     fontWeight: '600' as const,
     color: '#155724'
   },
   outputPath: {
-    margin: '0 0 15px 0',
-    fontSize: '13px',
+    margin: '0 0 clamp(12px, 2vw, 15px) 0',
+    fontSize: 'clamp(11px, 1.8vw, 13px)',
     color: '#155724',
     wordBreak: 'break-all' as const,
     fontFamily: 'Consolas, Monaco, monospace'
   },
   openButton: {
-    padding: '8px 16px',
+    padding: 'clamp(8px, 1.2vw, 10px) clamp(14px, 2vw, 16px)',
     backgroundColor: '#28a745',
     color: 'white',
     border: 'none',
     borderRadius: '4px',
     cursor: 'pointer',
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 2vw, 14px)',
     fontWeight: '500' as const
   },
   errorContainer: {
     display: 'flex',
-    gap: '15px',
-    padding: '20px',
+    gap: 'clamp(10px, 2vw, 15px)',
+    padding: 'clamp(15px, 2.5vw, 20px)',
     backgroundColor: '#f8d7da',
     border: '1px solid #f5c6cb',
-    borderRadius: '4px'
+    borderRadius: '4px',
+    flexWrap: 'wrap' as const
   },
   errorIcon: {
-    fontSize: '32px',
+    fontSize: 'clamp(28px, 4vw, 32px)',
     color: '#dc3545',
-    fontWeight: 'bold' as const
+    fontWeight: 'bold' as const,
+    flexShrink: 0
   },
   errorContent: {
-    flex: 1
+    flex: '1 1 200px',
+    minWidth: '150px'
   },
   errorTitle: {
-    margin: '0 0 10px 0',
-    fontSize: '18px',
+    margin: '0 0 clamp(8px, 1.5vw, 10px) 0',
+    fontSize: 'clamp(16px, 2.5vw, 18px)',
     fontWeight: '600' as const,
     color: '#721c24'
   },
   errorMessage: {
     margin: 0,
-    fontSize: '14px',
-    color: '#721c24'
+    fontSize: 'clamp(12px, 2vw, 14px)',
+    color: '#721c24',
+    wordBreak: 'break-word' as const
   }
 };

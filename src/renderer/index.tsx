@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App';
 
-// Global styles
+// Global styles with responsive design
 const globalStyles = `
   * {
     box-sizing: border-box;
@@ -16,6 +16,13 @@ const globalStyles = `
       sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+  }
+
+  #root {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
   }
 
   button:hover:not(:disabled) {
@@ -31,13 +38,15 @@ const globalStyles = `
     outline-offset: 2px;
   }
 
+  /* Responsive scrollbars */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: clamp(8px, 1vw, 12px);
+    height: clamp(8px, 1vw, 12px);
   }
 
   ::-webkit-scrollbar-track {
     background: #f1f1f1;
+    border-radius: 4px;
   }
 
   ::-webkit-scrollbar-thumb {
@@ -47,6 +56,18 @@ const globalStyles = `
 
   ::-webkit-scrollbar-thumb:hover {
     background: #555;
+  }
+
+  /* Ensure inputs and buttons are responsive */
+  input, select, button {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* Prevent text overflow */
+  input[type="text"] {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 `;
 

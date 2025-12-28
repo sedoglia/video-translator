@@ -94,84 +94,90 @@ export function ProcessControls({
 
 const styles = {
   container: {
-    marginBottom: '20px'
+    marginBottom: 'clamp(15px, 2vw, 20px)'
   },
   header: {
-    margin: '0 0 10px 0',
-    fontSize: '16px',
+    margin: '0 0 clamp(8px, 1.5vw, 10px) 0',
+    fontSize: 'clamp(14px, 2.5vw, 16px)',
     fontWeight: '600' as const
   },
   optionRow: {
     display: 'flex',
     alignItems: 'center',
-    gap: '15px',
-    marginBottom: '15px'
+    gap: 'clamp(10px, 2vw, 15px)',
+    marginBottom: 'clamp(12px, 2vw, 15px)',
+    flexWrap: 'wrap' as const
   },
   checkboxLabel: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 2vw, 14px)',
     cursor: 'pointer'
   },
   checkbox: {
-    width: '18px',
-    height: '18px',
+    width: 'clamp(16px, 2.5vw, 18px)',
+    height: 'clamp(16px, 2.5vw, 18px)',
     cursor: 'pointer'
   },
   gpuStatus: {
-    fontSize: '13px',
+    fontSize: 'clamp(11px, 1.8vw, 13px)',
     color: '#666',
     fontStyle: 'italic' as const
   },
   inputGroup: {
-    marginBottom: '15px'
+    marginBottom: 'clamp(12px, 2vw, 15px)'
   },
   label: {
     display: 'block',
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 2vw, 14px)',
     fontWeight: '500' as const,
     marginBottom: '5px'
   },
   pathInput: {
     display: 'flex',
-    gap: '10px'
+    gap: 'clamp(8px, 1.5vw, 10px)',
+    flexWrap: 'wrap' as const
   },
   input: {
-    flex: 1,
-    padding: '10px',
+    flex: '1 1 200px',
+    minWidth: '150px',
+    padding: 'clamp(8px, 1.5vw, 10px)',
     border: '1px solid #ccc',
     borderRadius: '4px',
-    fontSize: '14px'
+    fontSize: 'clamp(12px, 2vw, 14px)'
   },
   browseButton: {
-    padding: '10px 20px',
+    padding: 'clamp(8px, 1.5vw, 10px) clamp(15px, 2.5vw, 20px)',
     backgroundColor: '#6c757d',
     color: 'white',
     border: 'none',
     borderRadius: '4px',
     cursor: 'pointer',
-    fontSize: '14px'
+    fontSize: 'clamp(12px, 2vw, 14px)',
+    whiteSpace: 'nowrap' as const
   },
   buttonGroup: {
     display: 'flex',
-    gap: '10px'
+    gap: 'clamp(8px, 1.5vw, 10px)',
+    flexWrap: 'wrap' as const
   },
   button: {
-    padding: '12px 24px',
+    padding: 'clamp(10px, 1.5vw, 12px) clamp(18px, 3vw, 24px)',
     border: 'none',
     borderRadius: '4px',
-    fontSize: '16px',
+    fontSize: 'clamp(14px, 2.5vw, 16px)',
     fontWeight: '600' as const,
     cursor: 'pointer',
     transition: 'all 0.2s'
   },
   processButton: {
-    flex: 1,
+    flex: '1 1 150px',
     backgroundColor: '#007bff',
     color: 'white'
   },
   cancelButton: {
+    flex: '0 1 auto',
     backgroundColor: '#dc3545',
     color: 'white'
   },

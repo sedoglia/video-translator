@@ -61,38 +61,42 @@ export function LanguageSelector({
 
 const styles = {
   container: {
-    marginBottom: '20px'
+    marginBottom: 'clamp(15px, 2vw, 20px)'
   },
   header: {
-    margin: '0 0 10px 0',
-    fontSize: '16px',
+    margin: '0 0 clamp(8px, 1.5vw, 10px) 0',
+    fontSize: 'clamp(14px, 2.5vw, 16px)',
     fontWeight: '600' as const
   },
   selectGroup: {
     display: 'flex',
     alignItems: 'flex-end',
-    gap: '15px'
+    gap: 'clamp(10px, 2vw, 15px)',
+    flexWrap: 'wrap' as const
   },
   selectContainer: {
-    flex: 1,
+    flex: '1 1 150px',
+    minWidth: '120px',
     display: 'flex',
     flexDirection: 'column' as const,
     gap: '5px'
   },
   label: {
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 2vw, 14px)',
     fontWeight: '500' as const
   },
   select: {
-    padding: '10px',
+    padding: 'clamp(8px, 1.5vw, 10px)',
     border: '1px solid #ccc',
     borderRadius: '4px',
-    fontSize: '14px',
+    fontSize: 'clamp(12px, 2vw, 14px)',
     backgroundColor: 'white'
   },
   arrow: {
-    fontSize: '24px',
+    fontSize: 'clamp(20px, 3vw, 24px)',
     color: '#666',
-    paddingBottom: '10px'
+    paddingBottom: 'clamp(8px, 1.5vw, 10px)',
+    alignSelf: 'center',
+    flexShrink: 0
   }
 };

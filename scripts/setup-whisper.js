@@ -2,9 +2,24 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const { execSync } = require('child_process');
+const { promisify } = require('util');
+const stream = require('stream');
+const pipeline = promisify(stream.pipeline);
 
 // Configuration
-const MODELS_DIR = path.join(__dirname, '..', 'whisper-bin', 'models');
+const WHISPER_BIN_DIR = path.join(__dirname, '..', 'whisper-bin');
+const MODELS_DIR = path.join(WHISPER_BIN_DIR, 'models');
+
+// Whisper.cpp CUDA binaries configuration
+const WHISPER_CPP_RELEASE = 'v1.6.2'; // Latest stable release with CUDA support
+const CUDA_BINARIES = {
+  'whisper.dll': {
+    url: `https://github.com/ggerganov/whisper.cpp/releases/download/${WHISPER_CPP_RELEASE}/whisper-cublas-${WHISPER_CPP_RELEASE}-bin-x64.zip`,
+    size: '~15 MB',
+    isArchive: true
+  }
+};
+
 const MODELS = {
   tiny: {
     name: 'ggml-tiny.bin',
@@ -225,6 +240,143 @@ function checkGPUSupport() {
   }
 }
 
+function checkCudaBinaries() {
+  log('\nChecking Whisper.cpp CUDA binaries...', colors.cyan);
+
+  const requiredFiles = ['whisper.dll', 'cublas64_12.dll', 'cublasLt64_12.dll', 'cudart64_12.dll'];
+  const missingFiles = [];
+
+  for (const file of requiredFiles) {
+    const filePath = path.join(WHISPER_BIN_DIR, file);
+    if (!fs.existsSync(filePath)) {
+      missingFiles.push(file);
+    }
+  }
+
+  if (missingFiles.length === 0) {
+    log('✓ All CUDA binaries found!', colors.green);
+    return true;
+  } else {
+    log(`✗ Missing CUDA binaries: ${missingFiles.join(', ')}`, colors.yellow);
+    return false;
+  }
+}
+
+async function downloadAndExtractZip(url, destDir, onProgress) {
+  const tempZipPath = path.join(destDir, 'temp_download.zip');
+
+  try {
+    // Download ZIP file
+    await downloadFile(url, tempZipPath, onProgress);
+
+    log('\nExtracting archive...', colors.cyan);
+
+    // Use PowerShell to extract on Windows (built-in, no external dependencies)
+    const extractCommand = `powershell -command "Expand-Archive -Path '${tempZipPath}' -DestinationPath '${destDir}' -Force"`;
+
+    try {
+      execSync(extractCommand, { stdio: 'ignore' });
+      log('✓ Archive extracted successfully!', colors.green);
+
+      // Move DLL files from extracted subdirectory to whisper-bin root
+      const extractedDir = path.join(destDir, 'whisper-cublas-' + WHISPER_CPP_RELEASE + '-bin-x64');
+      if (fs.existsSync(extractedDir)) {
+        const files = fs.readdirSync(extractedDir);
+        for (const file of files) {
+          if (file.endsWith('.dll')) {
+            const srcPath = path.join(extractedDir, file);
+            const destPath = path.join(destDir, file);
+            fs.copyFileSync(srcPath, destPath);
+            log(`  ✓ Copied ${file}`, colors.green);
+          }
+        }
+        // Clean up extracted directory
+        fs.rmSync(extractedDir, { recursive: true, force: true });
+      }
+
+    } catch (error) {
+      log('✗ Failed to extract archive with PowerShell', colors.red);
+      throw new Error('Extraction failed. Please extract manually or ensure PowerShell is available.');
+    }
+
+  } finally {
+    // Clean up temp ZIP file
+    if (fs.existsSync(tempZipPath)) {
+      fs.unlinkSync(tempZipPath);
+    }
+  }
+}
+
+async function downloadCudaBinaries() {
+  log('\n' + '='.repeat(70), colors.cyan);
+  log('Downloading Whisper.cpp CUDA Binaries', colors.bright + colors.cyan);
+  log('='.repeat(70), colors.cyan);
+
+  log('\nThis will download the official Whisper.cpp binaries with CUDA support.', colors.reset);
+  log('Required for GPU acceleration (NVIDIA GPUs only).', colors.reset);
+  log(`Release: ${WHISPER_CPP_RELEASE}`, colors.cyan);
+
+  const zipUrl = CUDA_BINARIES['whisper.dll'].url;
+
+  log(`\nDownloading from: ${zipUrl}\n`, colors.cyan);
+
+  let lastProgress = 0;
+
+  await downloadAndExtractZip(zipUrl, WHISPER_BIN_DIR, (downloaded, total) => {
+    const percent = Math.floor((downloaded / total) * 100);
+
+    if (percent > lastProgress) {
+      lastProgress = percent;
+      const bar = '█'.repeat(Math.floor(percent / 2)) + '░'.repeat(50 - Math.floor(percent / 2));
+      process.stdout.write(`\r[${bar}] ${percent}% - ${formatBytes(downloaded)} / ${formatBytes(total)}`);
+    }
+  });
+
+  log('\n✓ CUDA binaries installed successfully!', colors.green);
+}
+
+async function setupCudaBinariesIfNeeded() {
+  if (!checkCudaBinaries()) {
+    log('\nCUDA binaries are required for GPU acceleration.', colors.yellow);
+    log('Without them, the application will not work properly.', colors.yellow);
+
+    const readline = require('readline').createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    const answer = await new Promise((resolve) => {
+      readline.question('\nDownload CUDA binaries now? (Y/n): ', (answer) => {
+        readline.close();
+        resolve(answer.trim().toLowerCase() || 'y');
+      });
+    });
+
+    if (answer === 'y' || answer === 'yes') {
+      try {
+        await downloadCudaBinaries();
+
+        // Verify installation
+        if (checkCudaBinaries()) {
+          log('\n✓ All required binaries are now installed!', colors.green);
+        } else {
+          log('\n✗ Some binaries are still missing.', colors.red);
+          log('Please check the whisper-bin/README.md for manual installation instructions.', colors.yellow);
+        }
+      } catch (error) {
+        log(`\n✗ Error downloading binaries: ${error.message}`, colors.red);
+        log('\nYou can download them manually from:', colors.yellow);
+        log(`  ${CUDA_BINARIES['whisper.dll'].url}`, colors.cyan);
+        log('\nSee whisper-bin/README.md for detailed instructions.', colors.yellow);
+      }
+    } else {
+      log('\nSkipping CUDA binaries download.', colors.yellow);
+      log('You can run this setup again later or download manually.', colors.yellow);
+      log('See whisper-bin/README.md for instructions.', colors.cyan);
+    }
+  }
+}
+
 function displayUsageInstructions(modelKey) {
   log('\n' + '='.repeat(70), colors.green);
   log('Setup Complete!', colors.bright + colors.green);
@@ -250,11 +402,21 @@ async function main() {
   log('Whisper Model Setup Tool', colors.bright + colors.blue);
   log('='.repeat(70) + '\n', colors.bright + colors.blue);
 
-  // Ensure models directory exists
+  // Ensure directories exist
+  ensureDirectoryExists(WHISPER_BIN_DIR);
   ensureDirectoryExists(MODELS_DIR);
 
   // Check GPU support
-  checkGPUSupport();
+  const hasGPU = checkGPUSupport();
+
+  // IMPORTANT: Setup CUDA binaries FIRST (required for the application to work)
+  if (hasGPU) {
+    await setupCudaBinariesIfNeeded();
+  } else {
+    log('\nNote: CUDA binaries are still required even without an NVIDIA GPU.', colors.yellow);
+    log('The application will fall back to CPU mode, but binaries must be present.', colors.yellow);
+    await setupCudaBinariesIfNeeded();
+  }
 
   // Get model selection from command line argument
   const args = process.argv.slice(2);

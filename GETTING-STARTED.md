@@ -21,7 +21,7 @@ Before you begin, install:
 ### Step 1: Clone Repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/sedoglia/video-translator.git
 cd video-translator
 ```
 
@@ -31,9 +31,32 @@ cd video-translator
 npm install
 ```
 
-This will install all required packages including Transformers.js for AI.
+This will install all required Node.js packages.
 
-### Step 3: Configure (Optional)
+### Step 3: Download CUDA Binaries and Whisper Model
+
+Run the automatic setup to download everything needed:
+
+```bash
+npm run setup
+```
+
+This single command will:
+1. **Check for CUDA binaries** and download if missing (~15 MB)
+2. **Download Whisper AI model** (default: medium, ~1.5 GB)
+3. **Verify GPU support** and installation
+4. **Extract and install** everything automatically
+
+**First Run Only**: This downloads large files but only happens once. Everything is cached for future use.
+
+**Alternative models:**
+```bash
+npm run setup:tiny    # Faster, smaller (75 MB)
+npm run setup:small   # Balanced (466 MB)
+npm run setup:large   # Best quality (3.1 GB)
+```
+
+### Step 4: Configure (Optional)
 
 Copy `.env.example` to `.env` if you want to customize settings:
 
@@ -55,8 +78,6 @@ This will:
 1. Build the TypeScript code
 2. Start the backend server
 3. Launch the Electron application
-
-**First Run Note**: The application will download AI models (~70-200MB). This happens automatically and only once. Models are cached for future use.
 
 ### Production Build
 

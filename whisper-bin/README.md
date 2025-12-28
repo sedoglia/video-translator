@@ -1,10 +1,29 @@
 # Whisper.cpp CUDA Binaries
 
-This directory should contain the Whisper.cpp binaries with CUDA support for GPU acceleration.
+This directory contains the Whisper.cpp binaries with CUDA support for GPU acceleration.
 
-## Required Files
+## ⭐ Automatic Installation (Recommended)
 
-Due to GitHub's file size limitations (100 MB max), the CUDA DLL files are not included in this repository. You need to download them separately.
+**The easiest way to get all required binaries:**
+
+```bash
+npm run setup
+```
+
+This single command will automatically:
+- ✅ Check for missing CUDA binaries
+- ✅ Download them from official Whisper.cpp releases (~15 MB)
+- ✅ Extract and install to this directory
+- ✅ Download the Whisper AI model
+- ✅ Verify installation
+
+**No manual steps required!** Everything is handled automatically.
+
+---
+
+## Manual Installation (Alternative)
+
+Due to GitHub's file size limitations (100 MB max), the CUDA DLL files are not included in this repository by default.
 
 ### Files needed:
 

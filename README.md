@@ -50,14 +50,14 @@ cd video-translator
 npm install
 ```
 
-### 5. Download Whisper Model (Automatic Setup)
+### 5. Download Whisper Model and CUDA Binaries (Automatic Setup)
 
-**Easy Way - Automatic Download:**
+**Easy Way - Fully Automatic Setup:**
 ```bash
-# Download the recommended medium model automatically
+# Download CUDA binaries + recommended medium model automatically
 npm run setup
 
-# Or download a specific model
+# Or download CUDA binaries + specific model
 npm run setup:tiny     # Fastest (75 MB)
 npm run setup:base     # Fast (142 MB)
 npm run setup:small    # Balanced (466 MB)
@@ -65,11 +65,15 @@ npm run setup:medium   # Best quality (1.5 GB) - Recommended
 npm run setup:large    # Highest quality (3.1 GB)
 ```
 
-The setup script will:
-- Download the selected model automatically
-- Check for GPU support
-- Verify the installation
-- Show progress during download
+The setup script will automatically:
+1. **Check for CUDA binaries** (whisper.dll and CUDA DLLs)
+2. **Download missing binaries** from official Whisper.cpp releases (~15 MB)
+3. **Extract and install** them to `whisper-bin/` directory
+4. **Download the selected Whisper AI model**
+5. **Verify GPU support** and installation
+6. **Show progress** during all downloads
+
+**No manual intervention required!** The script handles everything.
 
 **Manual Way (Alternative):**
 ```bash
@@ -85,11 +89,17 @@ The setup script will:
 ```
 
 ### 6. GPU Support (Optional)
-If you have an NVIDIA GPU with CUDA support, the application will automatically use it for faster transcription. The CUDA-enabled Whisper.cpp binaries are already included in the `whisper-bin` directory.
+If you have an NVIDIA GPU with CUDA support, the application will automatically use it for faster transcription. The setup script (`npm run setup`) downloads and installs the required CUDA-enabled Whisper.cpp binaries automatically.
 
 To verify GPU support:
+- The setup script will show "✓ NVIDIA GPU detected!" during installation
 - The application will show "✓ CUDA GPU detected" in the interface
 - Check GPU usage during transcription using Task Manager
+
+**Requirements for GPU acceleration:**
+- NVIDIA GPU with CUDA Compute Capability 3.0+
+- NVIDIA Driver 522.06 or newer
+- Windows 10/11 64-bit
 
 ## Usage
 

@@ -50,14 +50,14 @@ cd video-translator
 npm install
 ```
 
-### 5. Scaricare il Modello Whisper (Setup Automatico)
+### 5. Scaricare Modello Whisper e Binari CUDA (Setup Automatico)
 
-**Metodo Facile - Download Automatico:**
+**Metodo Facile - Setup Completamente Automatico:**
 ```bash
-# Scarica automaticamente il modello medium consigliato
+# Scarica binari CUDA + modello medium consigliato automaticamente
 npm run setup
 
-# Oppure scarica un modello specifico
+# Oppure scarica binari CUDA + modello specifico
 npm run setup:tiny     # Più veloce (75 MB)
 npm run setup:base     # Veloce (142 MB)
 npm run setup:small    # Bilanciato (466 MB)
@@ -65,11 +65,15 @@ npm run setup:medium   # Migliore qualità (1.5 GB) - Consigliato
 npm run setup:large    # Qualità massima (3.1 GB)
 ```
 
-Lo script di setup:
-- Scarica automaticamente il modello selezionato
-- Verifica il supporto GPU
-- Verifica l'installazione
-- Mostra il progresso durante il download
+Lo script di setup eseguirà automaticamente:
+1. **Verifica binari CUDA** (whisper.dll e DLL CUDA)
+2. **Scarica binari mancanti** dai rilasci ufficiali Whisper.cpp (~15 MB)
+3. **Estrae e installa** nella directory `whisper-bin/`
+4. **Scarica il modello AI Whisper selezionato**
+5. **Verifica supporto GPU** e installazione
+6. **Mostra progresso** durante tutti i download
+
+**Nessun intervento manuale richiesto!** Lo script gestisce tutto.
 
 **Metodo Manuale (Alternativo):**
 ```bash
@@ -85,11 +89,17 @@ Lo script di setup:
 ```
 
 ### 6. Supporto GPU (Opzionale)
-Se hai una GPU NVIDIA con supporto CUDA, l'applicazione la userà automaticamente per trascrizioni più veloci. I binari Whisper.cpp con CUDA sono già inclusi nella directory `whisper-bin`.
+Se hai una GPU NVIDIA con supporto CUDA, l'applicazione la userà automaticamente per trascrizioni più veloci. Lo script di setup (`npm run setup`) scarica e installa automaticamente i binari Whisper.cpp con CUDA richiesti.
 
 Per verificare il supporto GPU:
+- Lo script di setup mostrerà "✓ NVIDIA GPU detected!" durante l'installazione
 - L'applicazione mostrerà "✓ CUDA GPU rilevata" nell'interfaccia
 - Controlla l'utilizzo GPU durante la trascrizione usando Task Manager
+
+**Requisiti per accelerazione GPU:**
+- GPU NVIDIA con CUDA Compute Capability 3.0+
+- Driver NVIDIA 522.06 o più recente
+- Windows 10/11 64-bit
 
 ## Utilizzo
 

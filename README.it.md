@@ -14,6 +14,18 @@ Un'applicazione desktop per tradurre l'audio dei video utilizzando riconosciment
 - 🎯 **Lip-Sync ULTRA-PRECISO** - Precisione 99%+ con allineamento timestamp parola per parola e inserimento silenzi
 - 🎬 **Elaborazione Video** - Sincronizzazione automatica audio/video mantenendo qualità originale
 
+## Interfaccia Utente
+
+![Interfaccia Applicazione](screenshots/interface.png)
+
+L'applicazione presenta un'interfaccia intuitiva con:
+- Selezione sorgente video (File Locale o URL YouTube)
+- Configurazione lingue (lingua sorgente e destinazione)
+- Toggle accelerazione GPU CUDA con rilevamento automatico
+- Selezione directory output
+- Monitoraggio progresso in tempo reale
+- Log dettagliati dell'elaborazione
+
 ## Requisiti
 
 ### Requisiti di Sistema

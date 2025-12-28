@@ -14,6 +14,18 @@ A desktop application for translating video audio using AI-powered speech recogn
 - 🎯 **ULTRA-PRECISE Lip-Sync** - 99%+ accuracy with word-level timestamp alignment and silence insertion
 - 🎬 **Video Processing** - Automatic video/audio synchronization maintaining original quality
 
+## User Interface
+
+![Application Interface](screenshots/interface.png)
+
+The application features an intuitive interface with:
+- Video source selection (Local File or YouTube URL)
+- Language configuration (source and target languages)
+- GPU CUDA acceleration toggle with automatic detection
+- Output directory selection
+- Real-time progress monitoring
+- Detailed processing logs
+
 ## Requirements
 
 ### System Requirements

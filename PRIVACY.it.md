@@ -179,8 +179,8 @@ Questa Applicazione è open source. Puoi rivedere il codice sorgente per verific
 
 Per domande relative alla privacy o per esercitare i tuoi diritti GDPR:
 
-- **Email**: [Tua email di contatto]
-- **GitHub Issues**: [URL Issues Repository]
+- **Email**: sedoglia@gmail.com
+- **GitHub Issues**: [\[URL Issues Repository\]](https://github.com/sedoglia/video-translator/issues)
 
 Per problemi con servizi di terze parti:
 - Google Translate: [Google Privacy Policy](https://policies.google.com/privacy)

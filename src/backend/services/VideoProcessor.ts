@@ -16,6 +16,7 @@ export class VideoProcessor extends EventEmitter {
   private logger: JobLogger;
   private tempPaths: TempPaths | null = null;
   private cancelled = false;
+  private whisperSegments: any[] | undefined = undefined; // Store Whisper segments for advanced lip-sync
 
   constructor(private request: ProcessRequest) {
     super();
@@ -138,7 +139,7 @@ export class VideoProcessor extends EventEmitter {
   }
 
   private async transcribe(audioPath: string): Promise<any> {
-    this.emitProgress('TRANSCRIBING', 35, 'Transcribing audio with Whisper.js...');
+    this.emitProgress('TRANSCRIBING', 35, 'Transcribing audio with Whisper.cpp...');
 
     const whisperService = new WhisperService(this.logger);
     const result = await whisperService.transcribe(
@@ -146,6 +147,12 @@ export class VideoProcessor extends EventEmitter {
       this.request.sourceLanguage,
       this.request.useCuda
     );
+
+    // Store segments for advanced lip-sync
+    if (result.segments && result.segments.length > 0) {
+      this.whisperSegments = result.segments;
+      this.logger.debug('Stored Whisper segments for advanced lip-sync', { count: this.whisperSegments.length });
+    }
 
     this.emitProgress('TRANSCRIBING', 55, `Transcription complete (${result.language})`);
     return result;
@@ -173,7 +180,8 @@ export class VideoProcessor extends EventEmitter {
       text,
       this.request.targetLanguage,
       this.tempPaths!.ttsAudioPath,
-      originalAudioPath // Pass original audio for duration matching
+      originalAudioPath, // Pass original audio for duration matching
+      this.whisperSegments // Pass Whisper segments for timestamp-based lip-sync
     );
 
     this.emitProgress('SYNTHESIZING', 85, 'Speech synthesis complete');

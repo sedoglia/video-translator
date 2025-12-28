@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
 import { JobLogger } from '../utils/logger';
 import { LANGUAGES } from '../../shared/types';
 import ffmpeg from 'fluent-ffmpeg';
@@ -18,7 +19,8 @@ export class TTSService {
     text: string,
     targetLanguage: string,
     outputPath: string,
-    originalAudioPath?: string
+    originalAudioPath?: string,
+    whisperSegments?: any[] // Whisper segments with timestamps for precision lip-sync
   ): Promise<string> {
     this.logger.stage('SYNTHESIZING', `Generating TTS for language: ${targetLanguage}`);
 
@@ -32,11 +34,25 @@ export class TTSService {
 
       this.logger.debug('Generating speech with Edge TTS', {
         voice,
-        textLength: text.length
+        textLength: text.length,
+        hasWhisperSegments: !!whisperSegments,
+        segmentsCount: whisperSegments?.length || 0
       });
 
-      // If we have original audio, use intelligent segmentation for better lip-sync
-      if (originalAudioPath && fs.existsSync(originalAudioPath)) {
+      // If we have Whisper segments with timestamps, use advanced timestamp-based lip-sync
+      if (originalAudioPath && fs.existsSync(originalAudioPath) && whisperSegments && whisperSegments.length > 0) {
+        this.logger.info('Using ADVANCED timestamp-based lip-sync with Whisper segments');
+        await this.synthesizeWithWhisperTimestamps(
+          text,
+          voice,
+          originalAudioPath,
+          tempDir,
+          outputPath,
+          whisperSegments
+        );
+      } else if (originalAudioPath && fs.existsSync(originalAudioPath)) {
+        // Fallback to intelligent segmentation if no Whisper segments
+        this.logger.info('Using intelligent segmentation for lip-sync (no Whisper segments)');
         await this.synthesizeWithIntelligentSegmentation(
           text,
           voice,
@@ -152,6 +168,223 @@ export class TTSService {
       originalDuration,
       finalDuration: await this.getAudioDuration(outputPath)
     });
+  }
+
+  /**
+   * ADVANCED: Synthesize with Whisper timestamp-based segmentation
+   * Uses actual word/phrase timestamps from Whisper for maximum precision
+   * WITH SILENCE INSERTION for perfect pause preservation
+   */
+  private async synthesizeWithWhisperTimestamps(
+    translatedText: string,
+    voice: string,
+    originalAudioPath: string,
+    tempDir: string,
+    outputPath: string,
+    whisperSegments: any[]
+  ): Promise<void> {
+    this.logger.info('Starting ULTRA-PRECISE timestamp-based synthesis with silence insertion', {
+      segments: whisperSegments.length,
+      translatedLength: translatedText.length
+    });
+
+    // Get original audio duration for final verification
+    const originalDuration = await this.getAudioDuration(originalAudioPath);
+
+    // Split translated text into sentences/phrases (we'll match them to whisper segments)
+    const translatedSegments = this.segmentTextIntelligently(translatedText);
+
+    this.logger.debug('Segment alignment', {
+      whisperSegments: whisperSegments.length,
+      translatedSegments: translatedSegments.length
+    });
+
+    // Align translated segments with Whisper timestamps
+    // If counts don't match perfectly, distribute proportionally
+    const alignedSegments = this.alignTranslatedSegmentsWithTimestamps(
+      translatedSegments,
+      whisperSegments
+    );
+
+    this.logger.debug('Aligned segments for processing', { count: alignedSegments.length });
+
+    // Generate TTS for each aligned segment with PRECISE timing and silence insertion
+    const segmentAudioFiles: string[] = [];
+
+    for (let i = 0; i < alignedSegments.length; i++) {
+      const { text, startTime, endTime } = alignedSegments[i];
+      const targetDuration = endTime - startTime;
+
+      // Calculate silence BEFORE this segment (from previous segment end to this segment start)
+      let silenceBefore = 0;
+      if (i > 0) {
+        const previousEnd = alignedSegments[i - 1].endTime;
+        silenceBefore = startTime - previousEnd;
+      } else {
+        // First segment - add silence from 0 to startTime
+        silenceBefore = startTime;
+      }
+
+      // Only add silence if it's significant (> 50ms)
+      if (silenceBefore > 0.05) {
+        const silenceFile = path.join(tempDir, `silence_${i}.wav`);
+        await this.generateSilence(silenceFile, silenceBefore);
+        segmentAudioFiles.push(silenceFile);
+
+        this.logger.debug(`Added ${silenceBefore.toFixed(2)}s silence before segment ${i + 1}`);
+      }
+
+      const segmentFile = path.join(tempDir, `ts_segment_${i}.mp3`);
+      const segmentWav = path.join(tempDir, `ts_segment_${i}.wav`);
+
+      // Generate TTS for this segment
+      await this.generateSpeechEdgeTTS(text, voice, segmentFile);
+
+      // Convert to WAV
+      await this.convertToWav(segmentFile, segmentWav);
+
+      // Get actual duration
+      const actualDuration = await this.getAudioDuration(segmentWav);
+
+      // Time-stretch to match exact timestamp duration
+      const stretchedFile = path.join(tempDir, `ts_stretched_${i}.wav`);
+      if (Math.abs(targetDuration - actualDuration) / targetDuration > 0.03) { // 3% threshold
+        await this.timeStretchAudio(segmentWav, stretchedFile, targetDuration, actualDuration);
+        segmentAudioFiles.push(stretchedFile);
+        fs.unlinkSync(segmentWav);
+      } else {
+        segmentAudioFiles.push(segmentWav);
+      }
+
+      // Clean up MP3
+      fs.unlinkSync(segmentFile);
+
+      this.logger.debug(`Segment ${i + 1}/${alignedSegments.length} processed`, {
+        text: text.substring(0, 50),
+        targetDuration: targetDuration.toFixed(2),
+        actualDuration: actualDuration.toFixed(2),
+        silenceBefore: silenceBefore.toFixed(2)
+      });
+    }
+
+    // Add final silence if needed (from last segment end to total duration)
+    const lastSegment = alignedSegments[alignedSegments.length - 1];
+    const finalSilence = originalDuration - lastSegment.endTime;
+    if (finalSilence > 0.05) {
+      const silenceFile = path.join(tempDir, `silence_final.wav`);
+      await this.generateSilence(silenceFile, finalSilence);
+      segmentAudioFiles.push(silenceFile);
+      this.logger.debug(`Added ${finalSilence.toFixed(2)}s final silence`);
+    }
+
+    // Concatenate all segments WITH silences
+    await this.concatenateAudioFiles(segmentAudioFiles, outputPath);
+
+    // Final duration check
+    const finalDuration = await this.getAudioDuration(outputPath);
+    this.logger.info('Ultra-precise timestamp-based synthesis complete', {
+      originalDuration: originalDuration.toFixed(2),
+      finalDuration: finalDuration.toFixed(2),
+      difference: Math.abs(finalDuration - originalDuration).toFixed(2) + 's',
+      segments: alignedSegments.length,
+      accuracy: (100 - (Math.abs(finalDuration - originalDuration) / originalDuration * 100)).toFixed(2) + '%'
+    });
+
+    // Fine-tune final duration if needed (should be VERY minimal with silence insertion)
+    if (Math.abs(finalDuration - originalDuration) / originalDuration > 0.01) { // 1% threshold (stricter)
+      const adjustedFile = path.join(tempDir, 'ts_final_adjusted.wav');
+      await this.timeStretchAudio(outputPath, adjustedFile, originalDuration, finalDuration);
+      fs.copyFileSync(adjustedFile, outputPath);
+      fs.unlinkSync(adjustedFile);
+
+      this.logger.debug('Applied micro-adjustment for perfect sync');
+    }
+
+    // Clean up segment files
+    segmentAudioFiles.forEach(file => {
+      if (fs.existsSync(file)) {
+        fs.unlinkSync(file);
+      }
+    });
+  }
+
+  /**
+   * Generate silence audio file with exact duration
+   */
+  private async generateSilence(outputPath: string, durationSeconds: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const args = [
+        '-f', 'lavfi',
+        '-i', `anullsrc=channel_layout=mono:sample_rate=16000`,
+        '-t', durationSeconds.toString(),
+        '-acodec', 'pcm_s16le',
+        '-y',
+        outputPath
+      ];
+
+      execFile('ffmpeg', args, (error: Error | null) => {
+        if (error) {
+          reject(new Error(`Failed to generate silence: ${error.message}`));
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  /**
+   * Align translated text segments with Whisper timestamp segments
+   */
+  private alignTranslatedSegmentsWithTimestamps(
+    translatedSegments: string[],
+    whisperSegments: any[]
+  ): Array<{ text: string; startTime: number; endTime: number }> {
+    const aligned: Array<{ text: string; startTime: number; endTime: number }> = [];
+
+    if (translatedSegments.length === whisperSegments.length) {
+      // Perfect 1:1 alignment
+      for (let i = 0; i < translatedSegments.length; i++) {
+        aligned.push({
+          text: translatedSegments[i],
+          startTime: whisperSegments[i].start,
+          endTime: whisperSegments[i].end
+        });
+      }
+    } else if (translatedSegments.length < whisperSegments.length) {
+      // More Whisper segments than translated - group Whisper segments
+      const ratio = whisperSegments.length / translatedSegments.length;
+
+      for (let i = 0; i < translatedSegments.length; i++) {
+        const startIdx = Math.floor(i * ratio);
+        const endIdx = Math.min(Math.floor((i + 1) * ratio), whisperSegments.length);
+
+        aligned.push({
+          text: translatedSegments[i],
+          startTime: whisperSegments[startIdx].start,
+          endTime: whisperSegments[Math.min(endIdx, whisperSegments.length - 1)].end
+        });
+      }
+    } else {
+      // More translated segments than Whisper - distribute time proportionally
+      const totalTime = whisperSegments[whisperSegments.length - 1].end - whisperSegments[0].start;
+      const totalTextLength = translatedSegments.reduce((sum, seg) => sum + seg.length, 0);
+      let currentTime = whisperSegments[0].start;
+
+      for (let i = 0; i < translatedSegments.length; i++) {
+        const textProportion = translatedSegments[i].length / totalTextLength;
+        const duration = totalTime * textProportion;
+
+        aligned.push({
+          text: translatedSegments[i],
+          startTime: currentTime,
+          endTime: currentTime + duration
+        });
+
+        currentTime += duration;
+      }
+    }
+
+    return aligned;
   }
 
   /**

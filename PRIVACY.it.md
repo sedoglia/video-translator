@@ -1,6 +1,6 @@
 # Informativa sulla Privacy
 
-**Ultimo Aggiornamento: 28 Dicembre 2024**
+**Ultimo Aggiornamento: 28 Dicembre 2025**
 
 ## Introduzione
 

@@ -340,9 +340,11 @@ export class TTSService {
     whisperSegments: any[]
   ): Array<{ text: string; startTime: number; endTime: number }> {
     const aligned: Array<{ text: string; startTime: number; endTime: number }> = [];
+    let strategy: string;
 
     if (translatedSegments.length === whisperSegments.length) {
       // Perfect 1:1 alignment
+      strategy = '1:1 perfect match';
       for (let i = 0; i < translatedSegments.length; i++) {
         aligned.push({
           text: translatedSegments[i],
@@ -352,6 +354,7 @@ export class TTSService {
       }
     } else if (translatedSegments.length < whisperSegments.length) {
       // More Whisper segments than translated - group Whisper segments
+      strategy = 'grouping (fewer translated segments)';
       const ratio = whisperSegments.length / translatedSegments.length;
 
       for (let i = 0; i < translatedSegments.length; i++) {
@@ -366,6 +369,7 @@ export class TTSService {
       }
     } else {
       // More translated segments than Whisper - distribute time proportionally
+      strategy = 'proportional distribution (more translated segments)';
       const totalTime = whisperSegments[whisperSegments.length - 1].end - whisperSegments[0].start;
       const totalTextLength = translatedSegments.reduce((sum, seg) => sum + seg.length, 0);
       let currentTime = whisperSegments[0].start;
@@ -383,6 +387,36 @@ export class TTSService {
         currentTime += duration;
       }
     }
+
+    // Verify temporal continuity and log details
+    let hasOverlaps = false;
+    let hasLargeGaps = false;
+    for (let i = 1; i < aligned.length; i++) {
+      const gap = aligned[i].startTime - aligned[i - 1].endTime;
+      if (gap < 0) {
+        this.logger.warn(`Segment overlap in alignment: ${i - 1} → ${i}`, {
+          gap: gap.toFixed(3) + 's'
+        });
+        hasOverlaps = true;
+      }
+      if (gap > 5) { // Gap > 5 seconds
+        this.logger.warn(`Large gap in alignment: ${i - 1} → ${i}`, {
+          gap: gap.toFixed(3) + 's'
+        });
+        hasLargeGaps = true;
+      }
+    }
+
+    this.logger.info('Segment alignment complete', {
+      strategy,
+      translatedCount: translatedSegments.length,
+      whisperCount: whisperSegments.length,
+      alignedCount: aligned.length,
+      firstSegment: { start: aligned[0]?.startTime.toFixed(2), end: aligned[0]?.endTime.toFixed(2) },
+      lastSegment: { start: aligned[aligned.length - 1]?.startTime.toFixed(2), end: aligned[aligned.length - 1]?.endTime.toFixed(2) },
+      totalDuration: (aligned[aligned.length - 1]?.endTime - aligned[0]?.startTime).toFixed(2) + 's',
+      hasIssues: hasOverlaps || hasLargeGaps
+    });
 
     return aligned;
   }

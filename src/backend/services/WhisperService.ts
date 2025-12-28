@@ -116,15 +116,40 @@ export class WhisperService {
 
           // Extract segments with timestamps from Whisper JSON format
           if (jsonData.transcription && Array.isArray(jsonData.transcription)) {
-            segments = jsonData.transcription.map((seg: any) => ({
-              start: seg.timestamps?.from ? seg.timestamps.from / 1000 : seg.offsets?.from / 1000 || 0,
-              end: seg.timestamps?.to ? seg.timestamps.to / 1000 : seg.offsets?.to / 1000 || 0,
-              text: seg.text?.trim() || ''
-            })).filter((seg: any) => seg.text);
+            segments = jsonData.transcription
+              .map((seg: any, index: number) => {
+                const start = seg.timestamps?.from ? seg.timestamps.from / 1000 : seg.offsets?.from / 1000 || 0;
+                const end = seg.timestamps?.to ? seg.timestamps.to / 1000 : seg.offsets?.to / 1000 || 0;
+                const text = seg.text?.trim() || '';
 
-            this.logger.debug('Sample segment after parsing', {
-              first: segments[0],
-              count: segments.length
+                // Validate timestamp integrity
+                if (start >= end) {
+                  this.logger.warn(`Invalid timestamp in segment ${index}: start >= end`, { start, end });
+                  // Fix: ensure minimum 100ms duration
+                  return { start, end: start + 0.1, text };
+                }
+
+                return { start, end, text };
+              })
+              .filter((seg: any) => seg.text); // Only filter segments with text
+
+            // Verify temporal continuity
+            for (let i = 1; i < segments.length; i++) {
+              const gap = segments[i].start - segments[i - 1].end;
+              if (gap < 0) {
+                this.logger.warn(`Overlapping segments detected: ${i - 1} and ${i}`, {
+                  gap: gap.toFixed(3) + 's',
+                  prevEnd: segments[i - 1].end.toFixed(3),
+                  currStart: segments[i].start.toFixed(3)
+                });
+              }
+            }
+
+            this.logger.debug('Timestamp extraction complete', {
+              totalSegments: segments.length,
+              firstSegment: segments[0],
+              lastSegment: segments[segments.length - 1],
+              totalDuration: (segments[segments.length - 1]?.end - segments[0]?.start).toFixed(2) + 's'
             });
           } else {
             this.logger.warn('JSON format not recognized - transcription field missing or not an array');

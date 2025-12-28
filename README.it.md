@@ -193,24 +193,24 @@ video-translator/
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                   PIPELINE TRADUZIONE VIDEO                          │
+│                   PIPELINE TRADUZIONE VIDEO                         │
 └─────────────────────────────────────────────────────────────────────┘
 
 INPUT: File Video o URL YouTube
    │
    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ 1. ACQUISIZIONE VIDEO                                                │
-│    • YouTube: yt-dlp scarica il video                                │
-│    • Locale: Valida il formato file                                  │
+│ 1. ACQUISIZIONE VIDEO                                               │
+│    • YouTube: yt-dlp scarica il video                               │
+│    • Locale: Valida il formato file                                 │
 └─────────────────────────────────────────────────────────────────────┘
    │
    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ 2. ESTRAZIONE AUDIO                                                  │
-│    • FFmpeg estrae la traccia audio                                  │
-│    • Converte in WAV mono 16kHz                                      │
-│    • Ottimizzato per input Whisper.cpp                               │
+│ 2. ESTRAZIONE AUDIO                                                 │
+│    • FFmpeg estrae la traccia audio                                 │
+│    • Converte in WAV mono 16kHz                                     │
+│    • Ottimizzato per input Whisper.cpp                              │
 └─────────────────────────────────────────────────────────────────────┘
    │
    ▼
@@ -233,10 +233,10 @@ INPUT: File Video o URL YouTube
 └─────────────────────────────────────────────────────────────────────┘
    │
    ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ 5. SINTESI TEXT-TO-SPEECH (Microsoft Edge TTS)                      │
+┌────────────────────────────────────────────────────────────────────┐
+│ 5. SINTESI TEXT-TO-SPEECH (Microsoft Edge TTS)                     │
 │    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ a) Allineamento Timestamp a Livello di Parola              │ │
+│    │ a) Allineamento Timestamp a Livello di Parola               │ │
 │    │    • Usa timestamp parola/frase di Whisper                  │ │
 │    │    • Segmentazione intelligente su confini frasi            │ │
 │    │    • Preserva il ritmo naturale del parlato                 │ │
@@ -248,15 +248,15 @@ INPUT: File Video o URL YouTube
 │    │    • Output ad alta qualità 24kHz                           │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ c) Inserimento Silenzi ULTRA-PRECISO & Lip-Sync            │ │
+│    │ c) Inserimento Silenzi ULTRA-PRECISO & Lip-Sync             │ │
 │    │    • Inserisce silenzio esatto prima/dopo ogni segmento     │ │
 │    │    • Time-stretch segmenti per matchare timestamp Whisper   │ │
 │    │    • Preserva pause originali tra parole (±50ms)            │ │
 │    │    • Micro-aggiustamento finale per sync perfetto (±1%)     │ │
 │    │    • Precisione: sincronizzazione 99%+                      │ │
 │    └─────────────────────────────────────────────────────────────┘ │
-│    Output: Audio ultra-sincronizzato nella lingua destinazione      │
-└─────────────────────────────────────────────────────────────────────┘
+│    Output: Audio ultra-sincronizzato nella lingua destinazione     │
+└────────────────────────────────────────────────────────────────────┘
    │
    ▼
 ┌─────────────────────────────────────────────────────────────────────┐

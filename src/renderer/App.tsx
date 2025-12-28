@@ -126,11 +126,11 @@ export function App() {
 
 const styles = {
   container: {
-    minHeight: '100vh',
+    height: '100vh',
     backgroundColor: '#f8f9fa',
     display: 'flex',
     flexDirection: 'column' as const,
-    overflow: 'auto'
+    overflow: 'hidden'
   },
   header: {
     backgroundColor: '#343a40',
@@ -156,7 +156,8 @@ const styles = {
     width: '100%',
     margin: '0 auto',
     boxSizing: 'border-box' as const,
-    overflow: 'auto'
+    overflowY: 'auto' as const,
+    overflowX: 'hidden' as const
   },
   section: {
     backgroundColor: 'white',

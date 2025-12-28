@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs
+dist/
+out/
+build/
+
+# Temporary files
+temp/
+*.tmp
+*.log
+
+# Output files
+output/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.local
+
+# Whisper models and CUDA binaries (large files - download separately)
+whisper-bin/models/*.bin
+whisper-bin/*.dll
+whisper-bin/*.exe
+
+# Cache
+.cache/
+*.cache
+
+# Electron build artifacts
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm

@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(del /F C:video-translatorREADME.md)",
+      "Bash(ls:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(npx whisper-node:*)",
+      "Bash(bash:*)",
+      "Bash(node:*)",
+      "Bash(make:*)",
+      "Bash(cmake --version:*)",
+      "Bash(unzip:*)",
+      "Bash(curl:*)",
+      "Bash(cat:*)",
+      "Bash(./main.exe:*)",
+      "Bash(tar:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(del /F \"C:\\video-translator\\src\\backend\\services\\SubtitleGenerator.ts\")",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git checkout:*)",
+      "Bash(git config:*)",
+      "Bash(git rm:*)",
+      "Bash(git reset:*)",
+      "Bash(git filter-branch:*)"
+    ]
+  }
+}

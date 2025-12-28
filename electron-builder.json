@@ -1,0 +1,40 @@
+{
+  "appId": "com.videotranslator.app",
+  "productName": "Video Audio Translator",
+  "directories": {
+    "output": "out",
+    "buildResources": "public"
+  },
+  "files": [
+    "dist/**/*",
+    "python/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "python",
+      "to": "python",
+      "filter": ["**/*", "!venv/**/*"]
+    }
+  ],
+  "win": {
+    "target": ["nsis"],
+    "icon": "public/icon.png"
+  },
+  "mac": {
+    "target": ["dmg"],
+    "icon": "public/icon.png",
+    "category": "public.app-category.utilities"
+  },
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "icon": "public/icon.png",
+    "category": "Utility"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  }
+}

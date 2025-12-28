@@ -1,0 +1,379 @@
+# Video Audio Translator
+
+Un'applicazione desktop per tradurre l'audio dei video utilizzando riconoscimento vocale AI, traduzione e sintesi vocale.
+
+[🇬🇧 English Version](README.md) | [📋 Informativa Privacy](PRIVACY.it.md)
+
+## Caratteristiche
+
+- 🎥 **Supporto Video YouTube** - Scarica ed elabora video direttamente da YouTube
+- 🎙️ **Riconoscimento Vocale AI** - Alimentato da Whisper.cpp con accelerazione GPU CUDA
+- 🌍 **Traduzione Automatica** - Traduci l'audio in più lingue usando Google Translate
+- 🗣️ **Text-to-Speech** - Sintesi vocale neurale di qualità usando Microsoft Edge TTS
+- ⚡ **Accelerazione GPU** - Supporto CUDA per trascrizioni più veloci (GPU NVIDIA)
+- 🎬 **Elaborazione Video** - Sincronizzazione automatica audio/video con ottimizzazione lip-sync
+
+## Requisiti
+
+### Requisiti di Sistema
+- **Sistema Operativo**: Windows 10/11 (64-bit)
+- **RAM**: 4GB minimo, 8GB consigliati
+- **Spazio su Disco**: 2GB di spazio libero per i modelli e l'elaborazione
+- **GPU** (opzionale): GPU NVIDIA con supporto CUDA 12.6.0 per trascrizioni più veloci
+
+### Requisiti Software
+- **Node.js**: v18 o superiore
+- **FFmpeg**: Richiesto per l'elaborazione video
+- **Visual C++ Redistributable**: 2015-2022 (solitamente pre-installato su Windows)
+
+## Installazione
+
+### 1. Installare Node.js
+Scarica e installa Node.js da [nodejs.org](https://nodejs.org/)
+
+### 2. Installare FFmpeg
+Scarica FFmpeg da [ffmpeg.org](https://ffmpeg.org/download.html) e aggiungilo al PATH di sistema.
+
+Per verificare l'installazione, esegui:
+```bash
+ffmpeg -version
+```
+
+### 3. Clonare il Repository
+```bash
+git clone https://github.com/yourusername/video-translator.git
+cd video-translator
+```
+
+### 4. Installare le Dipendenze
+```bash
+npm install
+```
+
+### 5. Scaricare il Modello Whisper (Setup Automatico)
+
+**Metodo Facile - Download Automatico:**
+```bash
+# Scarica automaticamente il modello medium consigliato
+npm run setup
+
+# Oppure scarica un modello specifico
+npm run setup:tiny     # Più veloce (75 MB)
+npm run setup:base     # Veloce (142 MB)
+npm run setup:small    # Bilanciato (466 MB)
+npm run setup:medium   # Migliore qualità (1.5 GB) - Consigliato
+npm run setup:large    # Qualità massima (3.1 GB)
+```
+
+Lo script di setup:
+- Scarica automaticamente il modello selezionato
+- Verifica il supporto GPU
+- Verifica l'installazione
+- Mostra il progresso durante il download
+
+**Metodo Manuale (Alternativo):**
+```bash
+# Visita: https://huggingface.co/ggerganov/whisper.cpp/tree/main
+# Scarica: ggml-medium.bin
+# Posizionalo in: whisper-bin/models/ggml-medium.bin
+```
+
+**Alternativa PowerShell per Windows:**
+```powershell
+# Esegui lo script PowerShell di setup
+.\scripts\setup-whisper.ps1 -Model medium
+```
+
+### 6. Supporto GPU (Opzionale)
+Se hai una GPU NVIDIA con supporto CUDA, l'applicazione la userà automaticamente per trascrizioni più veloci. I binari Whisper.cpp con CUDA sono già inclusi nella directory `whisper-bin`.
+
+Per verificare il supporto GPU:
+- L'applicazione mostrerà "✓ CUDA GPU rilevata" nell'interfaccia
+- Controlla l'utilizzo GPU durante la trascrizione usando Task Manager
+
+## Utilizzo
+
+### Avviare l'Applicazione
+
+#### Modalità Sviluppo
+```bash
+npm start
+```
+
+#### Build per Produzione
+```bash
+npm run build
+npm run electron
+```
+
+### Elaborare un Video
+
+1. **Seleziona Sorgente Video**
+   - Scegli "YouTube URL" e incolla un link YouTube, OPPURE
+   - Scegli "File Locale" e sfoglia per selezionare un file video
+
+2. **Configura Impostazioni**
+   - **Lingua Sorgente**: Seleziona la lingua audio originale o usa "Rilevamento Automatico"
+   - **Lingua Destinazione**: Seleziona la lingua in cui tradurre
+   - **Usa GPU CUDA**: Abilita per elaborazione più veloce (se hai una GPU NVIDIA)
+   - **Directory Output**: Scegli dove salvare il video tradotto
+
+3. **Avvia Elaborazione**
+   - Clicca "Avvia Elaborazione"
+   - Monitora il progresso in tempo reale
+   - Il processo include:
+     - Download video (se YouTube)
+     - Estrazione audio
+     - Riconoscimento vocale (Whisper.cpp)
+     - Traduzione (Google Translate)
+     - Sintesi vocale (Microsoft Edge TTS)
+     - Remux video con nuovo audio
+
+4. **Output**
+   - Il video tradotto sarà salvato nella directory output
+   - Formato nome file: `video_translated_to_{lingua}.mp4`
+
+## Lingue Supportate
+
+L'applicazione supporta tutte le lingue disponibili in Google Translate, incluse:
+
+- Inglese (en)
+- Italiano (it)
+- Spagnolo (es)
+- Francese (fr)
+- Tedesco (de)
+- Portoghese (pt)
+- Russo (ru)
+- Giapponese (ja)
+- Cinese (zh-CN, zh-TW)
+- Arabo (ar)
+- E molte altre...
+
+## Struttura del Progetto
+
+```
+video-translator/
+├── src/
+│   ├── main.ts              # Processo principale Electron
+│   ├── preload.ts           # Script preload Electron
+│   ├── backend/             # Servizi backend
+│   │   ├── server.ts        # Server Express + Socket.IO
+│   │   ├── services/        # Servizi core
+│   │   │   ├── WhisperService.ts      # Riconoscimento vocale
+│   │   │   ├── TranslationService.ts  # Traduzione
+│   │   │   ├── TTSService.ts          # Text-to-speech
+│   │   │   ├── VideoRemux.ts          # Elaborazione video
+│   │   │   └── VideoProcessor.ts      # Orchestratore principale
+│   │   └── controllers/     # Controller API
+│   ├── renderer/            # Frontend React
+│   │   ├── App.tsx          # Componente principale app
+│   │   ├── components/      # Componenti UI
+│   │   └── hooks/           # Hook React
+│   └── shared/              # Tipi condivisi
+├── whisper-bin/             # Binari Whisper.cpp
+│   └── models/              # Modelli Whisper
+├── temp/                    # File temporanei elaborazione
+└── output/                  # Directory output predefinita
+```
+
+## Come Funziona
+
+### Panoramica del Processo
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                   PIPELINE TRADUZIONE VIDEO                          │
+└─────────────────────────────────────────────────────────────────────┘
+
+INPUT: File Video o URL YouTube
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 1. ACQUISIZIONE VIDEO                                                │
+│    • YouTube: yt-dlp scarica il video                                │
+│    • Locale: Valida il formato file                                  │
+└─────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 2. ESTRAZIONE AUDIO                                                  │
+│    • FFmpeg estrae la traccia audio                                  │
+│    • Converte in WAV mono 16kHz                                      │
+│    • Ottimizzato per input Whisper.cpp                               │
+└─────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 3. RICONOSCIMENTO VOCALE (Whisper.cpp + CUDA)                       │
+│    • Carica modello GGML (tiny/base/small/medium/large)             │
+│    • Accelerazione GPU via CUDA 12.6.0 (se disponibile)             │
+│    • Estrae testo con timestamp a livello di parola                 │
+│    • Rileva automaticamente la lingua sorgente                      │
+│    Output: Testo trascritto nella lingua originale                  │
+└─────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 4. TRADUZIONE (Google Translate API)                                │
+│    • Singola chiamata API per l'intero testo                        │
+│    • Preserva la struttura del testo                                │
+│    • Retry automatico con exponential backoff                       │
+│    Output: Testo tradotto nella lingua destinazione                 │
+└─────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 5. SINTESI TEXT-TO-SPEECH (Microsoft Edge TTS)                      │
+│    ┌─────────────────────────────────────────────────────────────┐ │
+│    │ a) Segmentazione Intelligente del Testo                     │ │
+│    │    • Divide sui confini delle frasi (. ! ?)                 │ │
+│    │    • Divide ulteriormente frasi lunghe su virgole/punto e v.│ │
+│    │    • Preserva il ritmo naturale del parlato                 │ │
+│    └─────────────────────────────────────────────────────────────┘ │
+│    ┌─────────────────────────────────────────────────────────────┐ │
+│    │ b) Sintesi Voce Neurale                                     │ │
+│    │    • TTS neurale basato su cloud per ogni segmento          │ │
+│    │    • Selezione voce appropriata per la lingua               │ │
+│    │    • Output ad alta qualità 24kHz                           │ │
+│    └─────────────────────────────────────────────────────────────┘ │
+│    ┌─────────────────────────────────────────────────────────────┐ │
+│    │ c) Ottimizzazione Lip-Sync                                  │ │
+│    │    • Calcola durata proporzionale per segmento              │ │
+│    │    • Time-stretch indipendente per ogni segmento (FFmpeg)   │ │
+│    │    • Concatena i segmenti senza interruzioni                │ │
+│    │    • Aggiustamento finale per matchare durata originale     │ │
+│    └─────────────────────────────────────────────────────────────┘ │
+│    Output: Audio sincronizzato nella lingua destinazione            │
+└─────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 6. REMUX VIDEO (FFmpeg)                                             │
+│    • Sostituisce audio originale con audio tradotto                 │
+│    • Stream video: copia (no re-encoding, preserva qualità)         │
+│    • Stream audio: codec AAC, timing sincronizzato                  │
+│    • Formato output: container MP4                                  │
+└─────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+OUTPUT: Video Tradotto (video_translated_to_{lingua}.mp4)
+```
+
+### Passaggi Dettagliati del Processo
+
+1. **Download/Validazione Video**
+   - Scarica il video da YouTube usando yt-dlp
+   - Oppure valida il file video locale
+
+2. **Estrazione Audio**
+   - Estrae la traccia audio dal video usando FFmpeg
+   - Converte in formato WAV 16kHz per Whisper
+
+3. **Riconoscimento Vocale**
+   - Elabora l'audio con Whisper.cpp (modello medium)
+   - Estrae il testo con timestamp
+   - Rileva automaticamente la lingua se non specificata
+
+4. **Traduzione**
+   - Traduce il testo estratto usando Google Translate API
+   - Singola chiamata API per evitare rate limiting
+   - Retry automatico con exponential backoff
+
+5. **Text-to-Speech**
+   - Genera voce dal testo tradotto usando voci neurali Microsoft Edge TTS
+   - Segmentazione intelligente del testo sui confini delle frasi per pause naturali
+   - Time-stretch proporzionale per segmento per migliore lip-sync
+   - Output ad alta qualità 24kHz
+
+6. **Remux Video**
+   - Combina video originale con audio tradotto
+   - Mantiene la qualità video (copia codec)
+   - Sincronizza timing audio/video
+
+## Risoluzione Problemi
+
+### GPU Non Rilevata
+- Assicurati di avere una GPU NVIDIA con supporto CUDA
+- Installa i driver NVIDIA più recenti
+- È richiesto il supporto CUDA 12.6.0
+
+### Traduzione Fallisce
+- Controlla la connessione internet
+- Se ricevi "Too Many Requests", aspetta qualche minuto
+- L'app ha retry automatico con exponential backoff
+
+### Errori FFmpeg
+- Verifica che FFmpeg sia installato e nel PATH
+- Esegui `ffmpeg -version` per controllare
+- Su Windows, riavvia il terminale dopo aver aggiunto al PATH
+
+### Elaborazione Lenta
+- Abilita GPU CUDA per trascrizioni più veloci (10-20x più veloce)
+- Usa video più piccoli per test
+- Chiudi altre applicazioni intensive per GPU
+
+### Problemi Voce TTS
+- Microsoft Edge TTS usa voci neurali basate su cloud
+- Non è richiesta alcuna installazione aggiuntiva
+- Richiede connessione internet per la generazione TTS
+- Supporta oltre 100 lingue con voci dal suono naturale
+
+## Consigli Prestazioni
+
+1. **Accelerazione GPU**: Abilita CUDA per trascrizioni 10-20x più veloci
+2. **Selezione Modello**: Il modello medium offre il miglior bilanciamento velocità/qualità
+3. **Elaborazione Batch**: Elabora un video alla volta per risultati migliori
+4. **Spazio Disco**: Assicurati di avere spazio libero sufficiente (2x dimensione video + modelli)
+
+## Limitazioni Note
+
+- Il burning dei sottotitoli è attualmente disabilitato (sarà re-implementato in una versione futura)
+- Richiede connessione internet per traduzione e generazione TTS
+- Rate limiting Google Translate (gestito automaticamente con retry)
+
+## Tecnologie Utilizzate
+
+- **Electron 39.2.7** - Framework applicazione desktop
+- **React 18.2.0** - Framework UI
+- **TypeScript 5.7.2** - Sviluppo type-safe
+- **Express 4.18.2** - Server backend
+- **Socket.IO 4.6.0** - Comunicazione real-time
+- **Whisper.cpp 1.6.2** - Riconoscimento vocale (CUDA 12.6.0)
+- **FFmpeg** - Elaborazione video/audio
+- **Google Translate API** - Servizio traduzione
+- **Microsoft Edge TTS** - Sintesi vocale neurale text-to-speech
+
+## Contribuire
+
+I contributi sono benvenuti! Sentiti libero di inviare una Pull Request.
+
+## Licenza
+
+Questo progetto è rilasciato con licenza MIT - vedi il file LICENSE per i dettagli.
+
+## Ringraziamenti
+
+- [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) - Implementazione veloce di Whisper di OpenAI
+- [FFmpeg](https://ffmpeg.org/) - Framework multimedia
+- [Google Translate](https://translate.google.com/) - Servizio traduzione
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - Downloader YouTube
+
+## Supporto
+
+Per problemi, domande o suggerimenti, apri un issue su GitHub.
+
+## Supporta il Progetto
+
+Se trovi utile questo progetto, considera di supportarne lo sviluppo:
+
+[![Dona con PayPal](https://img.shields.io/badge/Dona-PayPal-blue.svg)](https://paypal.me/sedoglia)
+
+Il tuo supporto aiuta a mantenere e migliorare questo progetto open-source!
+
+## Privacy
+
+Questa applicazione rispetta la tua privacy. Tutta l'elaborazione video avviene localmente sul tuo dispositivo. Solo il testo (trascrizioni e traduzioni) è inviato a API di terze parti. Leggi la nostra [Informativa Privacy](PRIVACY.it.md) completa per dettagli sulla conformità GDPR e gestione dei dati.
+
+---
+
+Realizzato con ❤️ usando Electron, React e AI

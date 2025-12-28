@@ -1,0 +1,379 @@
+# Video Audio Translator
+
+A desktop application for translating video audio using AI-powered speech recognition, translation, and text-to-speech synthesis.
+
+[🇮🇹 Versione Italiana](README.it.md) | [📋 Privacy Policy](PRIVACY.md)
+
+## Features
+
+- 🎥 **YouTube Video Support** - Download and process videos directly from YouTube
+- 🎙️ **AI Speech Recognition** - Powered by Whisper.cpp with CUDA GPU acceleration
+- 🌍 **Automatic Translation** - Translate audio to multiple languages using Google Translate
+- 🗣️ **Text-to-Speech** - Natural-sounding neural voice synthesis using Microsoft Edge TTS
+- ⚡ **GPU Acceleration** - CUDA support for faster transcription (NVIDIA GPUs)
+- 🎬 **Video Processing** - Automatic video/audio synchronization with lip-sync optimization
+
+## Requirements
+
+### System Requirements
+- **Operating System**: Windows 10/11 (64-bit)
+- **RAM**: 4GB minimum, 8GB recommended
+- **Storage**: 2GB free space for models and processing
+- **GPU** (optional): NVIDIA GPU with CUDA 12.6.0 support for faster transcription
+
+### Software Requirements
+- **Node.js**: v18 or higher
+- **FFmpeg**: Required for video processing
+- **Visual C++ Redistributable**: 2015-2022 (usually pre-installed on Windows)
+
+## Installation
+
+### 1. Install Node.js
+Download and install Node.js from [nodejs.org](https://nodejs.org/)
+
+### 2. Install FFmpeg
+Download FFmpeg from [ffmpeg.org](https://ffmpeg.org/download.html) and add it to your system PATH.
+
+To verify installation, run:
+```bash
+ffmpeg -version
+```
+
+### 3. Clone the Repository
+```bash
+git clone https://github.com/yourusername/video-translator.git
+cd video-translator
+```
+
+### 4. Install Dependencies
+```bash
+npm install
+```
+
+### 5. Download Whisper Model (Automatic Setup)
+
+**Easy Way - Automatic Download:**
+```bash
+# Download the recommended medium model automatically
+npm run setup
+
+# Or download a specific model
+npm run setup:tiny     # Fastest (75 MB)
+npm run setup:base     # Fast (142 MB)
+npm run setup:small    # Balanced (466 MB)
+npm run setup:medium   # Best quality (1.5 GB) - Recommended
+npm run setup:large    # Highest quality (3.1 GB)
+```
+
+The setup script will:
+- Download the selected model automatically
+- Check for GPU support
+- Verify the installation
+- Show progress during download
+
+**Manual Way (Alternative):**
+```bash
+# Visit: https://huggingface.co/ggerganov/whisper.cpp/tree/main
+# Download: ggml-medium.bin
+# Place it in: whisper-bin/models/ggml-medium.bin
+```
+
+**Windows PowerShell Alternative:**
+```powershell
+# Run the PowerShell setup script
+.\scripts\setup-whisper.ps1 -Model medium
+```
+
+### 6. GPU Support (Optional)
+If you have an NVIDIA GPU with CUDA support, the application will automatically use it for faster transcription. The CUDA-enabled Whisper.cpp binaries are already included in the `whisper-bin` directory.
+
+To verify GPU support:
+- The application will show "✓ CUDA GPU detected" in the interface
+- Check GPU usage during transcription using Task Manager
+
+## Usage
+
+### Starting the Application
+
+#### Development Mode
+```bash
+npm start
+```
+
+#### Build for Production
+```bash
+npm run build
+npm run electron
+```
+
+### Processing a Video
+
+1. **Select Video Source**
+   - Choose "YouTube URL" and paste a YouTube video link, OR
+   - Choose "Local File" and browse to select a video file
+
+2. **Configure Settings**
+   - **Source Language**: Select the original audio language or use "Auto Detect"
+   - **Target Language**: Select the language you want to translate to
+   - **Use GPU CUDA**: Enable for faster processing (if you have an NVIDIA GPU)
+   - **Output Directory**: Choose where to save the translated video
+
+3. **Start Processing**
+   - Click "Start Processing"
+   - Monitor progress in real-time
+   - The process includes:
+     - Video download (if YouTube)
+     - Audio extraction
+     - Speech recognition (Whisper.cpp)
+     - Translation (Google Translate)
+     - Text-to-speech synthesis (Microsoft Edge TTS)
+     - Video remuxing with new audio
+
+4. **Output**
+   - Translated video will be saved in the output directory
+   - Filename format: `video_translated_to_{language}.mp4`
+
+## Supported Languages
+
+The application supports all languages available in Google Translate, including:
+
+- English (en)
+- Italian (it)
+- Spanish (es)
+- French (fr)
+- German (de)
+- Portuguese (pt)
+- Russian (ru)
+- Japanese (ja)
+- Chinese (zh-CN, zh-TW)
+- Arabic (ar)
+- And many more...
+
+## Project Structure
+
+```
+video-translator/
+├── src/
+│   ├── main.ts              # Electron main process
+│   ├── preload.ts           # Electron preload script
+│   ├── backend/             # Backend services
+│   │   ├── server.ts        # Express + Socket.IO server
+│   │   ├── services/        # Core services
+│   │   │   ├── WhisperService.ts      # Speech recognition
+│   │   │   ├── TranslationService.ts  # Translation
+│   │   │   ├── TTSService.ts          # Text-to-speech
+│   │   │   ├── VideoRemux.ts          # Video processing
+│   │   │   └── VideoProcessor.ts      # Main orchestrator
+│   │   └── controllers/     # API controllers
+│   ├── renderer/            # React frontend
+│   │   ├── App.tsx          # Main app component
+│   │   ├── components/      # UI components
+│   │   └── hooks/           # React hooks
+│   └── shared/              # Shared types
+├── whisper-bin/             # Whisper.cpp binaries
+│   └── models/              # Whisper models
+├── temp/                    # Temporary processing files
+└── output/                  # Default output directory
+```
+
+## How It Works
+
+### Process Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        VIDEO TRANSLATION PIPELINE                    │
+└─────────────────────────────────────────────────────────────────────┘
+
+INPUT: Video File or YouTube URL
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 1. VIDEO ACQUISITION                                                 │
+│    • YouTube: yt-dlp downloads video                                 │
+│    • Local: Validates file format                                    │
+└─────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 2. AUDIO EXTRACTION                                                  │
+│    • FFmpeg extracts audio track                                     │
+│    • Converts to 16kHz mono WAV                                      │
+│    • Optimized for Whisper.cpp input                                 │
+└─────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 3. SPEECH RECOGNITION (Whisper.cpp + CUDA)                          │
+│    • Loads GGML model (tiny/base/small/medium/large)                │
+│    • GPU acceleration via CUDA 12.6.0 (if available)                │
+│    • Extracts text with word-level timestamps                       │
+│    • Auto-detects source language                                   │
+│    Output: Transcribed text in original language                    │
+└─────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 4. TRANSLATION (Google Translate API)                               │
+│    • Single API call for entire text                                │
+│    • Preserves text structure                                       │
+│    • Automatic retry with exponential backoff                       │
+│    Output: Translated text in target language                       │
+└─────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 5. TEXT-TO-SPEECH SYNTHESIS (Microsoft Edge TTS)                    │
+│    ┌─────────────────────────────────────────────────────────────┐ │
+│    │ a) Intelligent Text Segmentation                            │ │
+│    │    • Split on sentence boundaries (. ! ?)                   │ │
+│    │    • Further split long sentences on commas/semicolons      │ │
+│    │    • Preserves natural speech rhythm                        │ │
+│    └─────────────────────────────────────────────────────────────┘ │
+│    ┌─────────────────────────────────────────────────────────────┐ │
+│    │ b) Neural Voice Synthesis                                   │ │
+│    │    • Cloud-based neural TTS per segment                     │ │
+│    │    • Language-appropriate voice selection                   │ │
+│    │    • 24kHz high-quality output                              │ │
+│    └─────────────────────────────────────────────────────────────┘ │
+│    ┌─────────────────────────────────────────────────────────────┐ │
+│    │ c) Lip-Sync Optimization                                    │ │
+│    │    • Calculate proportional duration per segment            │ │
+│    │    • Time-stretch each segment independently (FFmpeg)       │ │
+│    │    • Concatenate segments seamlessly                        │ │
+│    │    • Final adjustment to match original duration            │ │
+│    └─────────────────────────────────────────────────────────────┘ │
+│    Output: Synchronized audio in target language                    │
+└─────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ 6. VIDEO REMUXING (FFmpeg)                                          │
+│    • Replaces original audio with translated audio                  │
+│    • Video stream: copy (no re-encoding, preserves quality)         │
+│    • Audio stream: AAC codec, synced timing                         │
+│    • Output format: MP4 container                                   │
+└─────────────────────────────────────────────────────────────────────┘
+   │
+   ▼
+OUTPUT: Translated Video (video_translated_to_{language}.mp4)
+```
+
+### Detailed Process Steps
+
+1. **Video Download/Validation**
+   - Downloads video from YouTube using yt-dlp
+   - Or validates local video file
+
+2. **Audio Extraction**
+   - Extracts audio track from video using FFmpeg
+   - Converts to 16kHz WAV format for Whisper
+
+3. **Speech Recognition**
+   - Processes audio with Whisper.cpp (medium model)
+   - Extracts text with timestamps
+   - Auto-detects language if not specified
+
+4. **Translation**
+   - Translates extracted text using Google Translate API
+   - Single API call to avoid rate limiting
+   - Automatic retry with exponential backoff
+
+5. **Text-to-Speech**
+   - Generates speech from translated text using Microsoft Edge TTS neural voices
+   - Intelligent text segmentation on sentence boundaries for natural pauses
+   - Proportional time-stretching per segment for better lip-sync
+   - High-quality 24kHz output
+
+6. **Video Remuxing**
+   - Combines original video with translated audio
+   - Maintains video quality (copy codec)
+   - Syncs audio/video timing
+
+## Troubleshooting
+
+### GPU Not Detected
+- Ensure you have an NVIDIA GPU with CUDA support
+- Install latest NVIDIA drivers
+- CUDA 12.6.0 support is required
+
+### Translation Fails
+- Check internet connection
+- If you get "Too Many Requests", wait a few minutes
+- The app has automatic retry with exponential backoff
+
+### FFmpeg Errors
+- Verify FFmpeg is installed and in PATH
+- Run `ffmpeg -version` to check
+- On Windows, restart terminal after adding to PATH
+
+### Slow Processing
+- Enable GPU CUDA for faster transcription (10-20x faster)
+- Use smaller videos for testing
+- Close other GPU-intensive applications
+
+### TTS Voice Issues
+- Microsoft Edge TTS uses cloud-based neural voices
+- No additional installation required
+- Requires internet connection for TTS generation
+- Supports 100+ languages with natural-sounding voices
+
+## Performance Tips
+
+1. **GPU Acceleration**: Enable CUDA for 10-20x faster transcription
+2. **Model Selection**: Medium model offers best balance of speed/quality
+3. **Batch Processing**: Process one video at a time for best results
+4. **Disk Space**: Ensure enough free space (2x video size + models)
+
+## Known Limitations
+
+- Subtitle burning is currently disabled (will be re-implemented in future version)
+- Requires internet connection for translation and TTS generation
+- Google Translate rate limiting (handled automatically with retries)
+
+## Technologies Used
+
+- **Electron 39.2.7** - Desktop application framework
+- **React 18.2.0** - UI framework
+- **TypeScript 5.7.2** - Type-safe development
+- **Express 4.18.2** - Backend server
+- **Socket.IO 4.6.0** - Real-time communication
+- **Whisper.cpp 1.6.2** - Speech recognition (CUDA 12.6.0)
+- **FFmpeg** - Video/audio processing
+- **Google Translate API** - Translation service
+- **Microsoft Edge TTS** - Neural text-to-speech synthesis
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) - Fast implementation of OpenAI's Whisper
+- [FFmpeg](https://ffmpeg.org/) - Multimedia framework
+- [Google Translate](https://translate.google.com/) - Translation service
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) - YouTube downloader
+
+## Support
+
+For issues, questions, or suggestions, please open an issue on GitHub.
+
+## Support the Project
+
+If you find this project useful, consider supporting its development:
+
+[![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-blue.svg)](https://paypal.me/sedoglia)
+
+Your support helps maintain and improve this open-source project!
+
+## Privacy
+
+This application respects your privacy. All video processing happens locally on your device. Only text (transcriptions and translations) is sent to third-party APIs. Read our full [Privacy Policy](PRIVACY.md) for details about GDPR compliance and data handling.
+
+---
+
+Made with ❤️ using Electron, React, and AI

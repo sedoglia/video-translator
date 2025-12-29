@@ -408,12 +408,19 @@ export class TTSService {
 
       for (let i = 0; i < translatedSegments.length; i++) {
         const startIdx = Math.floor(i * ratio);
-        const endIdx = Math.min(Math.floor((i + 1) * ratio), whisperSegments.length);
+        // End index should be exclusive (the start of the next group)
+        // For the last segment, use whisperSegments.length as the exclusive end
+        const endIdx = i === translatedSegments.length - 1
+          ? whisperSegments.length
+          : Math.floor((i + 1) * ratio);
+
+        // Use endIdx - 1 as the inclusive end index for the timestamp
+        const endTimestampIdx = Math.min(endIdx - 1, whisperSegments.length - 1);
 
         aligned.push({
           text: translatedSegments[i],
           startTime: whisperSegments[startIdx].start,
-          endTime: whisperSegments[Math.min(endIdx, whisperSegments.length - 1)].end
+          endTime: whisperSegments[endTimestampIdx].end
         });
       }
     } else {
@@ -559,23 +566,44 @@ export class TTSService {
    */
   private async generateSpeechEdgeTTS(text: string, voice: string, outputPath: string): Promise<void> {
     try {
-      const tts = new MsEdgeTTS();
-      await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+      // Sanitize and validate text
+      const sanitizedText = text.trim();
+
+      if (!sanitizedText || sanitizedText.length === 0) {
+        throw new Error('Empty text provided to Edge TTS');
+      }
 
       this.logger.debug('Generating audio with Edge TTS', {
         voice,
-        textPreview: text.substring(0, 100)
+        textLength: sanitizedText.length,
+        textPreview: sanitizedText.substring(0, 100),
+        fullText: sanitizedText // Log full text to debug
       });
 
-      const streams = tts.toStream(text);
+      const tts = new MsEdgeTTS();
+      await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+
+      const streams = tts.toStream(sanitizedText);
       const writable = fs.createWriteStream(outputPath);
+
+      let bytesWritten = 0;
+
+      // Track bytes written
+      writable.on('pipe', () => {
+        this.logger.debug('Edge TTS stream started piping');
+      });
 
       // Pipe the TTS audio stream to file
       await new Promise<void>((resolve, reject) => {
+        streams.audioStream.on('data', (chunk: Buffer) => {
+          bytesWritten += chunk.length;
+          this.logger.debug(`Edge TTS data chunk received: ${chunk.length} bytes (total: ${bytesWritten})`);
+        });
+
         streams.audioStream.pipe(writable);
 
         writable.on('finish', () => {
-          this.logger.debug('Edge TTS stream finished');
+          this.logger.debug('Edge TTS stream finished', { bytesWritten });
           resolve();
         });
 
@@ -588,6 +616,10 @@ export class TTSService {
           this.logger.error('Error reading TTS stream', { error: error.message });
           reject(error);
         });
+
+        streams.audioStream.on('end', () => {
+          this.logger.debug('Edge TTS audio stream ended', { bytesWritten });
+        });
       });
 
       // Verify file was created and has content
@@ -597,6 +629,13 @@ export class TTSService {
 
       const stats = fs.statSync(outputPath);
       if (stats.size === 0) {
+        this.logger.error('Edge TTS created empty file - diagnosis', {
+          textLength: sanitizedText.length,
+          text: sanitizedText,
+          voice,
+          bytesWrittenFromStream: bytesWritten,
+          outputPath
+        });
         throw new Error('Edge TTS created an empty file');
       }
 

@@ -131,8 +131,29 @@ export class WhisperService {
                   });
                 }
 
-                const start = seg.timestamps?.from ? seg.timestamps.from / 1000 : seg.offsets?.from / 1000 || 0;
-                const end = seg.timestamps?.to ? seg.timestamps.to / 1000 : seg.offsets?.to / 1000 || 0;
+                // Parse timestamps - can be either numbers (milliseconds) or SRT format strings ("HH:MM:SS,mmm")
+                let start = 0;
+                let end = 0;
+
+                const rawStart = seg.timestamps?.from || seg.offsets?.from;
+                const rawEnd = seg.timestamps?.to || seg.offsets?.to;
+
+                if (typeof rawStart === 'string') {
+                  // SRT format: "00:00:00,000" -> convert to seconds
+                  start = this.parseSRTTimestamp(rawStart);
+                } else if (typeof rawStart === 'number') {
+                  // Numeric milliseconds -> convert to seconds
+                  start = rawStart / 1000;
+                }
+
+                if (typeof rawEnd === 'string') {
+                  // SRT format: "00:00:00,000" -> convert to seconds
+                  end = this.parseSRTTimestamp(rawEnd);
+                } else if (typeof rawEnd === 'number') {
+                  // Numeric milliseconds -> convert to seconds
+                  end = rawEnd / 1000;
+                }
+
                 const text = seg.text?.trim() || '';
 
                 // Check for NaN
@@ -218,6 +239,37 @@ export class WhisperService {
         success: false,
         error: error.message
       };
+    }
+  }
+
+  /**
+   * Parse SRT timestamp format to seconds
+   * Format: "HH:MM:SS,mmm" or "HH:MM:SS.mmm"
+   */
+  private parseSRTTimestamp(timestamp: string): number {
+    try {
+      // Handle both comma and dot as decimal separator
+      const normalized = timestamp.replace(',', '.');
+
+      // Parse HH:MM:SS.mmm
+      const parts = normalized.split(':');
+      if (parts.length !== 3) {
+        this.logger.warn('Invalid SRT timestamp format', { timestamp });
+        return 0;
+      }
+
+      const hours = parseInt(parts[0], 10);
+      const minutes = parseInt(parts[1], 10);
+      const secondsParts = parts[2].split('.');
+      const seconds = parseInt(secondsParts[0], 10);
+      const milliseconds = secondsParts[1] ? parseInt(secondsParts[1].padEnd(3, '0').substring(0, 3), 10) : 0;
+
+      const totalSeconds = hours * 3600 + minutes * 60 + seconds + milliseconds / 1000;
+
+      return totalSeconds;
+    } catch (error) {
+      this.logger.warn('Failed to parse SRT timestamp', { timestamp, error });
+      return 0;
     }
   }
 

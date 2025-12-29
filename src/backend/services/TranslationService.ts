@@ -24,20 +24,19 @@ export class TranslationService {
       // Try Google Translate first (free, no API key needed)
       const translated = await this.translateWithGoogle(text, sourceLanguage, targetLanguage);
 
-      // Ensure proper UTF-8 encoding
-      const properEncoding = this.ensureUtf8Encoding(translated);
+      // Fix UTF-8 encoding issues from Google Translate API
+      const fixed = this.fixGoogleTranslateEncoding(translated);
 
-      this.logger.stage('TRANSLATING', `Translation complete (${properEncoding.length} chars)`);
-      return properEncoding;
+      this.logger.stage('TRANSLATING', `Translation complete (${fixed.length} chars)`);
+      return fixed;
     } catch (googleError: any) {
       this.logger.warn('Google Translate failed, trying LibreTranslate', { error: googleError.message });
 
       try {
         // Fallback to LibreTranslate
         const translated = await this.translateWithLibreTranslate(text, sourceLanguage, targetLanguage);
-        const properEncoding = this.ensureUtf8Encoding(translated);
-        this.logger.stage('TRANSLATING', `Translation complete via LibreTranslate (${properEncoding.length} chars)`);
-        return properEncoding;
+        this.logger.stage('TRANSLATING', `Translation complete via LibreTranslate (${translated.length} chars)`);
+        return translated;
       } catch (libreError: any) {
         this.logger.error('All translation services failed', {
           googleError: googleError.message,
@@ -200,8 +199,41 @@ export class TranslationService {
   }
 
   /**
+   * Fix encoding issues from Google Translate API
+   * The API may return text with mojibake (UTF-8 bytes interpreted as Latin-1)
+   */
+  private fixGoogleTranslateEncoding(text: string): string {
+    try {
+      // ALWAYS try to fix encoding - the text from Google Translate API is consistently
+      // returning UTF-8 bytes that were decoded as Latin-1 (mojibake)
+
+      // Re-encode as Latin-1 to get original UTF-8 bytes, then decode properly as UTF-8
+      const bytes: number[] = [];
+      for (let i = 0; i < text.length; i++) {
+        bytes.push(text.charCodeAt(i) & 0xFF);
+      }
+      const buffer = Buffer.from(bytes);
+      const fixed = buffer.toString('utf8');
+
+      // Log the fix for debugging
+      this.logger.info('Applied UTF-8 encoding fix to translation', {
+        originalLength: text.length,
+        fixedLength: fixed.length,
+        originalSample: text.substring(100, 150),
+        fixedSample: fixed.substring(100, 150)
+      });
+
+      return fixed;
+    } catch (error: any) {
+      this.logger.error('Encoding fix failed, returning original', { error: error.message });
+      return text;
+    }
+  }
+
+  /**
    * Ensure proper UTF-8 encoding by detecting and fixing double-encoding issues
    * This fixes UTF-8 text that was incorrectly interpreted as Windows-1252/Latin1
+   * NOTE: Currently unused - kept for reference
    */
   private ensureUtf8Encoding(text: string): string {
     try {

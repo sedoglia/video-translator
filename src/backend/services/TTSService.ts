@@ -317,27 +317,49 @@ export class TTSService {
       this.logger.debug(`Added ${finalSilence.toFixed(2)}s final silence`);
     }
 
+    // Log total files to concatenate for debugging
+    this.logger.debug('Concatenating audio files', {
+      totalFiles: segmentAudioFiles.length,
+      expectedSegments: alignedSegments.length,
+      expectedSilences: '~' + alignedSegments.length
+    });
+
     // Concatenate all segments WITH silences
     await this.concatenateAudioFiles(segmentAudioFiles, outputPath);
 
     // Final duration check
     const finalDuration = await this.getAudioDuration(outputPath);
+    const durationDiff = Math.abs(finalDuration - originalDuration);
     this.logger.info('Ultra-precise timestamp-based synthesis complete', {
       originalDuration: originalDuration.toFixed(2),
       finalDuration: finalDuration.toFixed(2),
-      difference: Math.abs(finalDuration - originalDuration).toFixed(2) + 's',
+      difference: durationDiff.toFixed(2) + 's',
+      differencePercent: (durationDiff / originalDuration * 100).toFixed(2) + '%',
       segments: alignedSegments.length,
-      accuracy: (100 - (Math.abs(finalDuration - originalDuration) / originalDuration * 100)).toFixed(2) + '%'
+      accuracy: (100 - (durationDiff / originalDuration * 100)).toFixed(2) + '%',
+      filesConcat: segmentAudioFiles.length
     });
 
-    // Fine-tune final duration if needed (should be VERY minimal with silence insertion)
-    if (Math.abs(finalDuration - originalDuration) / originalDuration > 0.01) { // 1% threshold (stricter)
+    // Apply final time-stretch to match exact duration if there's any mismatch
+    // This handles accumulated rounding errors and any stretch failures
+    if (durationDiff > 0.1) { // Only adjust if difference > 100ms
+      this.logger.info('Applying final time-stretch adjustment', {
+        currentDuration: finalDuration.toFixed(2),
+        targetDuration: originalDuration.toFixed(2),
+        adjustment: durationDiff.toFixed(2) + 's'
+      });
+
       const adjustedFile = path.join(tempDir, 'ts_final_adjusted.wav');
       await this.timeStretchAudio(outputPath, adjustedFile, originalDuration, finalDuration);
       fs.copyFileSync(adjustedFile, outputPath);
       fs.unlinkSync(adjustedFile);
 
-      this.logger.debug('Applied micro-adjustment for perfect sync');
+      const newDuration = await this.getAudioDuration(outputPath);
+      this.logger.info('Final adjustment complete', {
+        finalDuration: newDuration.toFixed(2),
+        targetDuration: originalDuration.toFixed(2),
+        remainingDiff: Math.abs(newDuration - originalDuration).toFixed(3) + 's'
+      });
     }
 
     // Clean up segment files

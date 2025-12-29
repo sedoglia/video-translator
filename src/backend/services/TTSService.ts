@@ -215,7 +215,8 @@ export class TTSService {
   ): Promise<void> {
     this.logger.info('Starting ULTRA-PRECISE timestamp-based synthesis with silence insertion', {
       segments: whisperSegments.length,
-      translatedLength: translatedText.length
+      translatedLength: translatedText.length,
+      translatedTextPreview: translatedText.substring(0, 200)
     });
 
     // Get original audio duration for final verification
@@ -226,7 +227,9 @@ export class TTSService {
 
     this.logger.debug('Segment alignment', {
       whisperSegments: whisperSegments.length,
-      translatedSegments: translatedSegments.length
+      translatedSegments: translatedSegments.length,
+      firstTranslatedSegment: translatedSegments[0]?.substring(0, 100),
+      lastTranslatedSegment: translatedSegments[translatedSegments.length - 1]?.substring(0, 100)
     });
 
     // Align translated segments with Whisper timestamps
@@ -276,13 +279,18 @@ export class TTSService {
       // Get actual duration
       const actualDuration = await this.getAudioDuration(segmentWav);
 
-      // Time-stretch to match exact timestamp duration
+      // ALWAYS time-stretch to match exact timestamp duration for perfect sync
+      // Even tiny mismatches accumulate across many segments, so we must be precise
       const stretchedFile = path.join(tempDir, `ts_stretched_${i}.wav`);
-      if (Math.abs(targetDuration - actualDuration) / targetDuration > 0.03) { // 3% threshold
+      const difference = Math.abs(targetDuration - actualDuration);
+      const needsStretching = difference > 0.01; // Only skip if within 10ms
+
+      if (needsStretching) {
         await this.timeStretchAudio(segmentWav, stretchedFile, targetDuration, actualDuration);
         segmentAudioFiles.push(stretchedFile);
         fs.unlinkSync(segmentWav);
       } else {
+        // Duration is already perfect, use as-is
         segmentAudioFiles.push(segmentWav);
       }
 
@@ -293,6 +301,8 @@ export class TTSService {
         text: text.substring(0, 50),
         targetDuration: targetDuration.toFixed(2),
         actualDuration: actualDuration.toFixed(2),
+        difference: difference.toFixed(3) + 's',
+        stretched: needsStretching,
         silenceBefore: silenceBefore.toFixed(2)
       });
     }
@@ -468,8 +478,16 @@ export class TTSService {
       translatedCount: translatedSegments.length,
       whisperCount: whisperSegments.length,
       alignedCount: aligned.length,
-      firstSegment: { start: aligned[0]?.startTime.toFixed(2), end: aligned[0]?.endTime.toFixed(2) },
-      lastSegment: { start: aligned[aligned.length - 1]?.startTime.toFixed(2), end: aligned[aligned.length - 1]?.endTime.toFixed(2) },
+      firstSegment: {
+        start: aligned[0]?.startTime.toFixed(2),
+        end: aligned[0]?.endTime.toFixed(2),
+        text: aligned[0]?.text?.substring(0, 50)
+      },
+      lastSegment: {
+        start: aligned[aligned.length - 1]?.startTime.toFixed(2),
+        end: aligned[aligned.length - 1]?.endTime.toFixed(2),
+        text: aligned[aligned.length - 1]?.text?.substring(0, 50)
+      },
       totalDuration: (aligned[aligned.length - 1]?.endTime - aligned[0]?.startTime).toFixed(2) + 's',
       hasIssues: hasOverlaps || hasLargeGaps
     });
@@ -729,12 +747,8 @@ export class TTSService {
     // Limit tempo to reasonable range (0.5 to 2.0) to preserve audio quality
     const clampedTempo = Math.max(0.5, Math.min(2.0, tempo));
 
-    if (Math.abs(clampedTempo - 1.0) < 0.05) {
-      // Less than 5% difference, no need to stretch
-      this.logger.debug('Duration difference negligible, skipping time-stretch');
-      fs.copyFileSync(inputPath, outputPath);
-      return;
-    }
+    // For ultra-precise lip-sync, we need to stretch even tiny differences
+    // Removed the 5% threshold - every mismatch must be corrected
 
     this.logger.debug('Applying time-stretch', {
       targetDuration,

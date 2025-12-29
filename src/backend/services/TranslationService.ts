@@ -23,16 +23,21 @@ export class TranslationService {
     try {
       // Try Google Translate first (free, no API key needed)
       const translated = await this.translateWithGoogle(text, sourceLanguage, targetLanguage);
-      this.logger.stage('TRANSLATING', `Translation complete (${translated.length} chars)`);
-      return translated;
+
+      // Ensure proper UTF-8 encoding
+      const properEncoding = this.ensureUtf8Encoding(translated);
+
+      this.logger.stage('TRANSLATING', `Translation complete (${properEncoding.length} chars)`);
+      return properEncoding;
     } catch (googleError: any) {
       this.logger.warn('Google Translate failed, trying LibreTranslate', { error: googleError.message });
 
       try {
         // Fallback to LibreTranslate
         const translated = await this.translateWithLibreTranslate(text, sourceLanguage, targetLanguage);
-        this.logger.stage('TRANSLATING', `Translation complete via LibreTranslate (${translated.length} chars)`);
-        return translated;
+        const properEncoding = this.ensureUtf8Encoding(translated);
+        this.logger.stage('TRANSLATING', `Translation complete via LibreTranslate (${properEncoding.length} chars)`);
+        return properEncoding;
       } catch (libreError: any) {
         this.logger.error('All translation services failed', {
           googleError: googleError.message,
@@ -192,5 +197,57 @@ export class TranslationService {
     }
 
     return 'en'; // Default fallback
+  }
+
+  /**
+   * Ensure proper UTF-8 encoding by detecting and fixing double-encoding issues
+   * This fixes UTF-8 text that was incorrectly interpreted as Windows-1252/Latin1
+   */
+  private ensureUtf8Encoding(text: string): string {
+    try {
+      // Check for UTF-8 double-encoding corruption by looking for suspicious byte sequences
+      // When UTF-8 is interpreted as Latin1, multi-byte characters become multiple Latin1 chars
+
+      // Common indicators of UTF-8 corruption:
+      // - Char codes > 127 followed by specific patterns
+      // - Multiple consecutive chars in the 192-255 range (C0-FF)
+      let suspiciousSequences = 0;
+
+      for (let i = 0; i < text.length - 1; i++) {
+        const code = text.charCodeAt(i);
+        const nextCode = text.charCodeAt(i + 1);
+
+        // UTF-8 two-byte sequence (C0-DF followed by 80-BF)
+        if (code >= 0xC0 && code <= 0xDF && nextCode >= 0x80 && nextCode <= 0xBF) {
+          suspiciousSequences++;
+        }
+        // UTF-8 three-byte sequence start (E0-EF)
+        else if (code >= 0xE0 && code <= 0xEF) {
+          suspiciousSequences++;
+        }
+      }
+
+      // If we find multiple suspicious sequences, likely double-encoded
+      if (suspiciousSequences < 3) {
+        return text; // Looks clean, no fix needed
+      }
+
+      // Attempt to fix by re-encoding as latin1 then decoding as utf8
+      const buffer = Buffer.from(text, 'latin1');
+      const fixed = buffer.toString('utf8');
+
+      this.logger.info('Fixed UTF-8 double-encoding corruption', {
+        originalLength: text.length,
+        fixedLength: fixed.length,
+        suspiciousSequences,
+        originalPreview: text.substring(0, 100),
+        fixedPreview: fixed.substring(0, 100)
+      });
+
+      return fixed;
+    } catch (error: any) {
+      this.logger.warn('Failed to fix encoding, returning original text', { error: error.message });
+      return text;
+    }
   }
 }

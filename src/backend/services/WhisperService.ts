@@ -118,9 +118,33 @@ export class WhisperService {
           if (jsonData.transcription && Array.isArray(jsonData.transcription)) {
             segments = jsonData.transcription
               .map((seg: any, index: number) => {
+                // Log raw segment data for first few segments to debug
+                if (index < 3) {
+                  this.logger.debug(`Raw Whisper segment ${index}`, {
+                    hasTimestamps: !!seg.timestamps,
+                    hasOffsets: !!seg.offsets,
+                    timestampsFrom: seg.timestamps?.from,
+                    timestampsTo: seg.timestamps?.to,
+                    offsetsFrom: seg.offsets?.from,
+                    offsetsTo: seg.offsets?.to,
+                    text: seg.text?.substring(0, 30)
+                  });
+                }
+
                 const start = seg.timestamps?.from ? seg.timestamps.from / 1000 : seg.offsets?.from / 1000 || 0;
                 const end = seg.timestamps?.to ? seg.timestamps.to / 1000 : seg.offsets?.to / 1000 || 0;
                 const text = seg.text?.trim() || '';
+
+                // Check for NaN
+                if (isNaN(start) || isNaN(end)) {
+                  this.logger.warn(`NaN timestamp in segment ${index}`, {
+                    start,
+                    end,
+                    rawStart: seg.timestamps?.from || seg.offsets?.from,
+                    rawEnd: seg.timestamps?.to || seg.offsets?.to,
+                    text: text.substring(0, 50)
+                  });
+                }
 
                 // Validate timestamp integrity
                 if (start >= end) {

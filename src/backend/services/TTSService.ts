@@ -41,15 +41,45 @@ export class TTSService {
 
       // If we have Whisper segments with timestamps, use advanced timestamp-based lip-sync
       if (originalAudioPath && fs.existsSync(originalAudioPath) && whisperSegments && whisperSegments.length > 0) {
-        this.logger.info('Using ADVANCED timestamp-based lip-sync with Whisper segments');
-        await this.synthesizeWithWhisperTimestamps(
-          text,
-          voice,
-          originalAudioPath,
-          tempDir,
-          outputPath,
-          whisperSegments
+        // Validate that segments have valid timestamps
+        const hasValidTimestamps = whisperSegments.every(seg =>
+          typeof seg.start === 'number' && !isNaN(seg.start) &&
+          typeof seg.end === 'number' && !isNaN(seg.end)
         );
+
+        if (hasValidTimestamps) {
+          this.logger.info('Using ADVANCED timestamp-based lip-sync with Whisper segments');
+          try {
+            await this.synthesizeWithWhisperTimestamps(
+              text,
+              voice,
+              originalAudioPath,
+              tempDir,
+              outputPath,
+              whisperSegments
+            );
+          } catch (error: any) {
+            this.logger.warn('Timestamp-based synthesis failed, falling back to intelligent segmentation', {
+              error: error.message
+            });
+            await this.synthesizeWithIntelligentSegmentation(
+              text,
+              voice,
+              originalAudioPath,
+              tempDir,
+              outputPath
+            );
+          }
+        } else {
+          this.logger.warn('Whisper segments have invalid timestamps, using intelligent segmentation instead');
+          await this.synthesizeWithIntelligentSegmentation(
+            text,
+            voice,
+            originalAudioPath,
+            tempDir,
+            outputPath
+          );
+        }
       } else if (originalAudioPath && fs.existsSync(originalAudioPath)) {
         // Fallback to intelligent segmentation if no Whisper segments
         this.logger.info('Using intelligent segmentation for lip-sync (no Whisper segments)');
@@ -341,6 +371,25 @@ export class TTSService {
   ): Array<{ text: string; startTime: number; endTime: number }> {
     const aligned: Array<{ text: string; startTime: number; endTime: number }> = [];
     let strategy: string;
+
+    // Validate whisper segments have valid timestamps
+    const invalidSegments = whisperSegments.filter((seg, idx) => {
+      const hasValidStart = typeof seg.start === 'number' && !isNaN(seg.start);
+      const hasValidEnd = typeof seg.end === 'number' && !isNaN(seg.end);
+      if (!hasValidStart || !hasValidEnd) {
+        this.logger.warn(`Invalid timestamp in Whisper segment ${idx}`, {
+          start: seg.start,
+          end: seg.end,
+          text: seg.text?.substring(0, 50)
+        });
+        return true;
+      }
+      return false;
+    });
+
+    if (invalidSegments.length > 0) {
+      throw new Error(`Found ${invalidSegments.length} Whisper segments with invalid timestamps. Cannot perform timestamp-based alignment.`);
+    }
 
     if (translatedSegments.length === whisperSegments.length) {
       // Perfect 1:1 alignment

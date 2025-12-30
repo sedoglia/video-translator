@@ -288,9 +288,26 @@ export class TTSService {
       const needsStretching = difference > 0.001; // Only skip if within 1ms (ultra-precise)
 
       if (needsStretching) {
-        // IMPROVEMENT 3: Add 5ms padding to target duration to prevent clicks/pops
-        // This creates a micro-gap between segments for cleaner audio concatenation
-        const paddedTarget = targetDuration - 0.005; // Subtract 5ms for safety padding
+        // IMPROVEMENT: Dynamic padding based on segment characteristics
+        // Calculate speech rate (words per second) for this segment
+        const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
+        const wordsPerSecond = wordCount / targetDuration;
+
+        // Classify speech rate
+        let padding = 0.005; // Default 5ms
+        if (wordsPerSecond > 4.5) {
+          // Very fast speech - reduce padding to maintain flow
+          padding = 0.002; // 2ms for fast speech
+        } else if (wordsPerSecond < 2.5) {
+          // Slow/emphatic speech - increase padding for clarity
+          padding = 0.008; // 8ms for slow speech
+        } else if (wordsPerSecond >= 3.5) {
+          // Fast speech - slightly reduce padding
+          padding = 0.003; // 3ms for moderately fast speech
+        }
+        // Normal speech (2.5-3.5 wps) keeps default 5ms
+
+        const paddedTarget = targetDuration - padding;
         await this.timeStretchAudio(segmentWav, stretchedFile, paddedTarget, actualDuration);
         segmentAudioFiles.push(stretchedFile);
         fs.unlinkSync(segmentWav);
@@ -302,13 +319,18 @@ export class TTSService {
       // Clean up MP3
       fs.unlinkSync(segmentFile);
 
+      // Calculate speech rate for logging
+      const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
+      const wordsPerSecond = wordCount / targetDuration;
+
       this.logger.debug(`Segment ${i + 1}/${alignedSegments.length} processed`, {
         text: text.substring(0, 50),
         targetDuration: targetDuration.toFixed(3),
         actualDuration: actualDuration.toFixed(3),
         difference: difference.toFixed(4) + 's',
         stretched: needsStretching,
-        padding: needsStretching ? '5ms' : 'none',
+        speechRate: wordsPerSecond.toFixed(1) + ' wps',
+        padding: needsStretching ? this.getPaddingForRate(wordsPerSecond) : 'none',
         silenceBefore: silenceBefore.toFixed(3)
       });
     }
@@ -567,6 +589,10 @@ export class TTSService {
   /**
    * Concatenate multiple audio files into one
    */
+  /**
+   * IMPROVEMENT: Concatenate audio files with cross-fade for seamless transitions
+   * Uses acrossfade filter to eliminate clicks/pops between segments
+   */
   private async concatenateAudioFiles(audioFiles: string[], outputPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const command = ffmpeg();
@@ -576,27 +602,43 @@ export class TTSService {
         command.input(file);
       });
 
-      // Create filter complex for concatenation
-      const filterParts: string[] = [];
-      audioFiles.forEach((_, index) => {
-        filterParts.push(`[${index}:a]`);
-      });
-      const filterComplex = `${filterParts.join('')}concat=n=${audioFiles.length}:v=0:a=1[outa]`;
+      // IMPROVEMENT: Use cross-fade between segments for smooth transitions
+      // acrossfade eliminates clicks/pops and creates natural-sounding audio flow
+      const crossfadeDuration = 0.010; // 10ms crossfade (subtle but effective)
+
+      if (audioFiles.length === 1) {
+        // Single file - no crossfade needed
+        const filterComplex = `[0:a]anull[outa]`;
+        command.complexFilter(filterComplex);
+      } else {
+        // Build crossfade chain: [0][1]xfade[a1]; [a1][2]xfade[a2]; ...
+        const filters: string[] = [];
+        let previousLabel = '0:a';
+
+        for (let i = 1; i < audioFiles.length; i++) {
+          const currentLabel = i === audioFiles.length - 1 ? 'outa' : `a${i}`;
+          // acrossfade: d=duration, c1/c2=curve (tri=triangular for smooth transition)
+          filters.push(`[${previousLabel}][${i}:a]acrossfade=d=${crossfadeDuration}:c1=tri:c2=tri[${currentLabel}]`);
+          previousLabel = currentLabel;
+        }
+
+        command.complexFilter(filters.join(';'));
+      }
 
       command
-        .complexFilter(filterComplex)
         .outputOptions(['-map', '[outa]'])
         .toFormat('wav')
         .audioChannels(1)
         .audioFrequency(44100)
         .on('start', (cmd) => {
-          this.logger.debug('Concatenating audio segments', {
+          this.logger.debug('Concatenating audio with cross-fade', {
             segments: audioFiles.length,
-            command: cmd
+            crossfadeDuration: crossfadeDuration + 's',
+            command: cmd.substring(0, 200)
           });
         })
         .on('end', () => {
-          this.logger.debug('Audio concatenation complete');
+          this.logger.debug('Audio concatenation with cross-fade complete');
           resolve();
         })
         .on('error', (err: Error) => {
@@ -800,6 +842,16 @@ export class TTSService {
         })
         .save(outputPath);
     });
+  }
+
+  /**
+   * Helper method to get padding duration based on speech rate
+   */
+  private getPaddingForRate(wordsPerSecond: number): string {
+    if (wordsPerSecond > 4.5) return '2ms';
+    if (wordsPerSecond >= 3.5) return '3ms';
+    if (wordsPerSecond < 2.5) return '8ms';
+    return '5ms';
   }
 
   private getAtempoFilter(tempo: number): string {

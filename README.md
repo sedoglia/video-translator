@@ -309,13 +309,13 @@ OUTPUT: Translated Video (video_translated_to_{language}.mp4)
 5. **Text-to-Speech with ULTRA-PRECISE Lip-Sync**
    - Generates speech from translated text using Microsoft Edge TTS neural voices
    - Phrase-level translation preserving context and meaning
+   - Proper UTF-8 encoding preserving accented characters (à,è,ì,ò,ù,é,á)
    - Word-level timestamp alignment using Whisper's precise timings
    - Automatic silence insertion to preserve original pauses (±20ms accuracy)
    - 10ms triangular cross-fade between segments for seamless transitions
    - Dynamic padding (2-8ms) adjusted based on speech rate analysis
    - Individual segment time-stretching to match exact timestamp durations (1ms precision)
    - Final micro-adjustment for perfect synchronization (±1% tolerance)
-   - Smart UTF-8 encoding fix with automatic mojibake detection
    - Result: 99.9%+ accuracy lip-sync synchronization
    - High-quality 24kHz output
 

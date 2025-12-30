@@ -24,10 +24,11 @@ export class TranslationService {
       // Try Google Translate first (free, no API key needed)
       const translated = await this.translateWithGoogle(text, sourceLanguage, targetLanguage);
 
-      // Google Translate already returns proper UTF-8
-      // Any corruption seen in logs is only a console display issue, not in the actual data
-      this.logger.stage('TRANSLATING', `Translation complete (${translated.length} chars)`);
-      return translated;
+      // Fix UTF-8 encoding issues from Google Translate API
+      const fixed = this.fixGoogleTranslateEncoding(translated);
+
+      this.logger.stage('TRANSLATING', `Translation complete (${fixed.length} chars)`);
+      return fixed;
     } catch (googleError: any) {
       this.logger.warn('Google Translate failed, trying LibreTranslate', { error: googleError.message });
 

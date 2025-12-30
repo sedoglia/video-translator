@@ -67,8 +67,9 @@ export class WhisperService {
         '--output-txt',
         '--output-json', // Get JSON output with timestamps
         '--output-file', path.join(path.dirname(audioPath), 'transcript'),
-        '--max-len', '1',  // IMPROVEMENT: Force word-level segmentation for finer granularity
-        '--split-on-word'  // IMPROVEMENT: Split at word boundaries for better alignment
+        '--split-on-word'  // Split at word boundaries for natural phrase breaks
+        // NOTE: Removed --max-len 1 to keep phrase-level segmentation
+        // This ensures full sentences are translated together for proper context
       ];
 
       // GPU is enabled by default in whisper.cpp

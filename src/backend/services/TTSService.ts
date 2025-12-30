@@ -258,13 +258,14 @@ export class TTSService {
         silenceBefore = startTime;
       }
 
-      // Only add silence if it's significant (> 50ms)
-      if (silenceBefore > 0.05) {
+      // IMPROVEMENT 1: Reduced threshold from 50ms to 20ms for more natural pauses
+      // Even short pauses are important for lip-sync realism
+      if (silenceBefore > 0.02) {
         const silenceFile = path.join(tempDir, `silence_${i}.wav`);
         await this.generateSilence(silenceFile, silenceBefore);
         segmentAudioFiles.push(silenceFile);
 
-        this.logger.debug(`Added ${silenceBefore.toFixed(2)}s silence before segment ${i + 1}`);
+        this.logger.debug(`Added ${silenceBefore.toFixed(3)}s silence before segment ${i + 1}`);
       }
 
       const segmentFile = path.join(tempDir, `ts_segment_${i}.mp3`);
@@ -279,14 +280,18 @@ export class TTSService {
       // Get actual duration
       const actualDuration = await this.getAudioDuration(segmentWav);
 
+      // IMPROVEMENT 4: Ultra-precise time-stretching with 1ms threshold
       // ALWAYS time-stretch to match exact timestamp duration for perfect sync
       // Even tiny mismatches accumulate across many segments, so we must be precise
       const stretchedFile = path.join(tempDir, `ts_stretched_${i}.wav`);
       const difference = Math.abs(targetDuration - actualDuration);
-      const needsStretching = difference > 0.01; // Only skip if within 10ms
+      const needsStretching = difference > 0.001; // Only skip if within 1ms (ultra-precise)
 
       if (needsStretching) {
-        await this.timeStretchAudio(segmentWav, stretchedFile, targetDuration, actualDuration);
+        // IMPROVEMENT 3: Add 5ms padding to target duration to prevent clicks/pops
+        // This creates a micro-gap between segments for cleaner audio concatenation
+        const paddedTarget = targetDuration - 0.005; // Subtract 5ms for safety padding
+        await this.timeStretchAudio(segmentWav, stretchedFile, paddedTarget, actualDuration);
         segmentAudioFiles.push(stretchedFile);
         fs.unlinkSync(segmentWav);
       } else {
@@ -299,22 +304,23 @@ export class TTSService {
 
       this.logger.debug(`Segment ${i + 1}/${alignedSegments.length} processed`, {
         text: text.substring(0, 50),
-        targetDuration: targetDuration.toFixed(2),
-        actualDuration: actualDuration.toFixed(2),
-        difference: difference.toFixed(3) + 's',
+        targetDuration: targetDuration.toFixed(3),
+        actualDuration: actualDuration.toFixed(3),
+        difference: difference.toFixed(4) + 's',
         stretched: needsStretching,
-        silenceBefore: silenceBefore.toFixed(2)
+        padding: needsStretching ? '5ms' : 'none',
+        silenceBefore: silenceBefore.toFixed(3)
       });
     }
 
     // Add final silence if needed (from last segment end to total duration)
     const lastSegment = alignedSegments[alignedSegments.length - 1];
     const finalSilence = originalDuration - lastSegment.endTime;
-    if (finalSilence > 0.05) {
+    if (finalSilence > 0.02) {
       const silenceFile = path.join(tempDir, `silence_final.wav`);
       await this.generateSilence(silenceFile, finalSilence);
       segmentAudioFiles.push(silenceFile);
-      this.logger.debug(`Added ${finalSilence.toFixed(2)}s final silence`);
+      this.logger.debug(`Added ${finalSilence.toFixed(3)}s final silence`);
     }
 
     // Log total files to concatenate for debugging

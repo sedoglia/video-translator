@@ -369,7 +369,7 @@ OUTPUT: Translated Video (video_translated_to_{language}.mp4)
 
 - **Electron 39.2.7** - Desktop application framework
 - **React 18.2.0** - UI framework
-- **TypeScript 5.7.2** - Type-safe development
+- **TypeScript 5.9.3** - Type-safe development
 - **Express 4.18.2** - Backend server
 - **Socket.IO 4.6.0** - Real-time communication
 - **Whisper.cpp 1.6.2** - Speech recognition (CUDA 12.6.0)

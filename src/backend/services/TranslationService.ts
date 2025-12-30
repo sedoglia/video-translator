@@ -24,11 +24,10 @@ export class TranslationService {
       // Try Google Translate first (free, no API key needed)
       const translated = await this.translateWithGoogle(text, sourceLanguage, targetLanguage);
 
-      // Fix UTF-8 encoding issues from Google Translate API
-      const fixed = this.fixGoogleTranslateEncoding(translated);
-
-      this.logger.stage('TRANSLATING', `Translation complete (${fixed.length} chars)`);
-      return fixed;
+      // Google Translate API returns properly encoded UTF-8 text
+      // Italian accented characters (à,è,ì,ò,ù,é,á) are preserved correctly
+      this.logger.stage('TRANSLATING', `Translation complete (${translated.length} chars)`);
+      return translated;
     } catch (googleError: any) {
       this.logger.warn('Google Translate failed, trying LibreTranslate', { error: googleError.message });
 
@@ -196,62 +195,6 @@ export class TranslationService {
     }
 
     return 'en'; // Default fallback
-  }
-
-  /**
-   * Fix encoding issues from Google Translate API
-   * The API may return text with mojibake (UTF-8 bytes interpreted as Latin-1)
-   * Only applies fix when mojibake is detected
-   */
-  private fixGoogleTranslateEncoding(text: string): string {
-    try {
-      // Detect if text contains mojibake by looking for suspicious byte patterns
-      // Common mojibake indicators: characters in range 0x80-0xFF that form UTF-8 sequences
-      let hasMojibake = false;
-
-      for (let i = 0; i < text.length - 1; i++) {
-        const code = text.charCodeAt(i);
-        const nextCode = text.charCodeAt(i + 1);
-
-        // UTF-8 two-byte sequence start (C0-DF) followed by continuation byte (80-BF)
-        if (code >= 0xC0 && code <= 0xDF && nextCode >= 0x80 && nextCode <= 0xBF) {
-          hasMojibake = true;
-          break;
-        }
-        // UTF-8 three-byte sequence start (E0-EF)
-        if (code >= 0xE0 && code <= 0xEF) {
-          hasMojibake = true;
-          break;
-        }
-      }
-
-      // If no mojibake detected, return original text
-      if (!hasMojibake) {
-        this.logger.debug('No mojibake detected, keeping original encoding');
-        return text;
-      }
-
-      // Re-encode as Latin-1 to get original UTF-8 bytes, then decode properly as UTF-8
-      const bytes: number[] = [];
-      for (let i = 0; i < text.length; i++) {
-        bytes.push(text.charCodeAt(i) & 0xFF);
-      }
-      const buffer = Buffer.from(bytes);
-      const fixed = buffer.toString('utf8');
-
-      // Log the fix for debugging
-      this.logger.info('Applied UTF-8 encoding fix to translation', {
-        originalLength: text.length,
-        fixedLength: fixed.length,
-        originalSample: text.substring(100, 150),
-        fixedSample: fixed.substring(100, 150)
-      });
-
-      return fixed;
-    } catch (error: any) {
-      this.logger.error('Encoding fix failed, returning original', { error: error.message });
-      return text;
-    }
   }
 
   /**

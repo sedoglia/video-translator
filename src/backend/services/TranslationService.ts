@@ -201,11 +201,35 @@ export class TranslationService {
   /**
    * Fix encoding issues from Google Translate API
    * The API may return text with mojibake (UTF-8 bytes interpreted as Latin-1)
+   * Only applies fix when mojibake is detected
    */
   private fixGoogleTranslateEncoding(text: string): string {
     try {
-      // ALWAYS try to fix encoding - the text from Google Translate API is consistently
-      // returning UTF-8 bytes that were decoded as Latin-1 (mojibake)
+      // Detect if text contains mojibake by looking for suspicious byte patterns
+      // Common mojibake indicators: characters in range 0x80-0xFF that form UTF-8 sequences
+      let hasMojibake = false;
+
+      for (let i = 0; i < text.length - 1; i++) {
+        const code = text.charCodeAt(i);
+        const nextCode = text.charCodeAt(i + 1);
+
+        // UTF-8 two-byte sequence start (C0-DF) followed by continuation byte (80-BF)
+        if (code >= 0xC0 && code <= 0xDF && nextCode >= 0x80 && nextCode <= 0xBF) {
+          hasMojibake = true;
+          break;
+        }
+        // UTF-8 three-byte sequence start (E0-EF)
+        if (code >= 0xE0 && code <= 0xEF) {
+          hasMojibake = true;
+          break;
+        }
+      }
+
+      // If no mojibake detected, return original text
+      if (!hasMojibake) {
+        this.logger.debug('No mojibake detected, keeping original encoding');
+        return text;
+      }
 
       // Re-encode as Latin-1 to get original UTF-8 bytes, then decode properly as UTF-8
       const bytes: number[] = [];

@@ -156,6 +156,54 @@ npm run electron
    - Translated video will be saved in the output directory
    - Filename format: `video_translated_to_{language}.mp4`
 
+### Analyzing Results
+
+After processing a video, you can analyze the accuracy and performance metrics using the included analysis script:
+
+```bash
+node analyze-results.js
+```
+
+This script will:
+- Find the most recent log file automatically
+- Extract calibration metrics (samples, duration ratio, calculated rate)
+- Display accuracy percentage and lip-sync strategy used
+- Show duration metrics (original vs final duration, difference)
+- Provide a clear success/failure indicator based on accuracy thresholds:
+  - ✅ **SUCCESS**: Accuracy ≥ 95%
+  - ⚠️ **CLOSE**: Accuracy ≥ 90% but < 95%
+  - ❌ **NEEDS IMPROVEMENT**: Accuracy < 90%
+
+**Example output:**
+```
+=== Analyzing Latest Test Results ===
+
+📊 Calibration Phase:
+  Samples: 10
+  Avg Target: 6.16s
+  Avg Actual: 3.07s
+  Duration Ratio: 0.499
+  Calculated Rate: -50%
+
+📈 Results:
+  Strategy: 1:1 perfect match
+  Segments: 88
+  Calibration Rate: -50%
+
+⏱️  Duration:
+  Original: 441.72s
+  Final: 454.02s
+  Difference: 12.30s
+
+🎯 Accuracy: 97.22%
+
+✅ SUCCESS - Accuracy >= 95%
+```
+
+**Adaptive Rate Control Strategies:**
+- **GLOBAL rate**: Used when variance is low (stdDev < 0.3) - applies single rate to entire video
+- **PER-SEGMENT rate**: Used when variance is high (stdDev ≥ 0.3) - calculates unique rate for each segment based on calibration
+
 ## Supported Languages
 
 The application supports all languages available in Google Translate, including:
@@ -254,13 +302,23 @@ INPUT: Video File or YouTube URL
 │    │    • Preserves natural speech rhythm                        │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ b) Neural Voice Synthesis                                   │ │
+│    │ b) Adaptive TTS Rate Control                                │ │
+│    │    • Calibration phase: 15 segments or 20% of video         │ │
+│    │    • Variance detection (stdDev threshold: 0.3)             │ │
+│    │    • GLOBAL rate: Single rate for consistent speech         │ │
+│    │    • PER-SEGMENT rate: Individual rates for varied speech   │ │
+│    │    • Edge TTS rate range: -100% to +100% (max quality)      │ │
+│    │    • Weighted prediction based on calibration samples       │ │
+│    └─────────────────────────────────────────────────────────────┘ │
+│    ┌─────────────────────────────────────────────────────────────┐ │
+│    │ c) Neural Voice Synthesis                                   │ │
 │    │    • Cloud-based neural TTS per segment                     │ │
 │    │    • Language-appropriate voice selection                   │ │
 │    │    • 24kHz high-quality output                              │ │
+│    │    • Rate-controlled synthesis for duration matching        │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ c) ULTRA-PRECISE Silence Insertion & Lip-Sync               │ │
+│    │ d) ULTRA-PRECISE Silence Insertion & Lip-Sync               │ │
 │    │    • Inserts exact silence before/after each segment        │ │
 │    │    • Time-stretch each segment to match Whisper timestamps  │ │
 │    │    • 10ms triangular cross-fade between segments            │ │
@@ -268,7 +326,7 @@ INPUT: Video File or YouTube URL
 │    │    • Preserves original pauses between words (±20ms)        │ │
 │    │    • Ultra-precise threshold: 1ms accuracy                  │ │
 │    │    • Final micro-adjustment for perfect sync (±1%)          │ │
-│    │    • Accuracy: 99.9%+ synchronization                       │ │
+│    │    • Accuracy: 95-99%+ synchronization                      │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    Output: Ultra-synchronized audio in target language             │
 └────────────────────────────────────────────────────────────────────┘
@@ -306,7 +364,14 @@ OUTPUT: Translated Video (video_translated_to_{language}.mp4)
    - Single API call to avoid rate limiting
    - Automatic retry with exponential backoff
 
-5. **Text-to-Speech with ULTRA-PRECISE Lip-Sync**
+5. **Text-to-Speech with Adaptive Rate Control & ULTRA-PRECISE Lip-Sync**
+   - **Adaptive TTS Rate Control** (NEW):
+     - Calibration phase analyzing first 15 segments (20% of video)
+     - Dual-strategy system based on speech variance:
+       - **GLOBAL rate**: Single rate adjustment for consistent speech patterns (stdDev < 0.3)
+       - **PER-SEGMENT rate**: Individual rate per segment for varied speech (stdDev ≥ 0.3)
+     - Intelligent duration prediction using weighted calibration samples
+     - Edge TTS rate control: -100% to +100% for natural-sounding adjustment
    - Generates speech from translated text using Microsoft Edge TTS neural voices
    - Phrase-level translation preserving context and meaning
    - Proper UTF-8 encoding preserving accented characters (à,è,ì,ò,ù,é,á)
@@ -316,7 +381,7 @@ OUTPUT: Translated Video (video_translated_to_{language}.mp4)
    - Dynamic padding (2-8ms) adjusted based on speech rate analysis
    - Individual segment time-stretching to match exact timestamp durations (1ms precision)
    - Final micro-adjustment for perfect synchronization (±1% tolerance)
-   - Result: 99.9%+ accuracy lip-sync synchronization
+   - Result: 95-99%+ accuracy lip-sync synchronization
    - High-quality 24kHz output
 
 6. **Video Remuxing**

@@ -2,6 +2,13 @@
 
 Un'applicazione desktop per tradurre l'audio dei video utilizzando riconoscimento vocale AI, traduzione e sintesi vocale.
 
+> **Nota**: Questa versione italiana potrebbe non includere tutte le ultime funzionalità. Per la documentazione più aggiornata, consultare la [versione inglese](README.md).
+>
+> **Nuove funzionalità (vedi README inglese)**:
+> - 🎯 Controllo adattivo della velocità TTS (Adaptive Rate Control)
+> - 📊 Script di analisi dei risultati (`analyze-results.js`)
+> - 🔄 Sistema dual-strategy (GLOBAL/PER-SEGMENT) per video con parlato variabile
+
 [🇬🇧 English Version](README.md) | [📋 Informativa Privacy](PRIVACY.it.md)
 
 ## Caratteristiche

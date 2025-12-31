@@ -856,13 +856,12 @@ export class TTSService {
         textPreview: sanitizedText.substring(0, 100)
       });
 
-      // Wrap text in SSML to control rate
-      const ssmlText = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="it-IT"><voice name="${voice}"><prosody rate="${rate}">${sanitizedText}</prosody></voice></speak>`;
-
       const tts = new MsEdgeTTS();
       await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
 
-      const streams = tts.toStream(ssmlText);
+      // Pass rate as ProsodyOptions (second parameter to toStream)
+      const prosodyOptions = rate !== '+0%' ? { rate } : undefined;
+      const streams = tts.toStream(sanitizedText, prosodyOptions);
       const writable = fs.createWriteStream(outputPath);
 
       let bytesWritten = 0;

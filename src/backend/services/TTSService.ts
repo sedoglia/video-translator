@@ -608,81 +608,97 @@ export class TTSService {
   /**
    * Split text into exact number of segments proportionally
    * This ensures 1:1 mapping with Whisper segments for perfect alignment
+   * GUARANTEES to return exactly targetSegmentCount segments
    */
   private splitTextProportionally(text: string, targetSegmentCount: number): string[] {
-    // First, try to split on natural boundaries (sentences)
-    const sentences = text
-      .split(/([.!?]+(?:\s+|$))/)
-      .filter(s => s.trim().length > 0)
-      .reduce((acc: string[], curr, idx, arr) => {
-        if (idx % 2 === 0) {
-          const punct = arr[idx + 1] || '';
-          acc.push((curr + punct).trim());
-        }
-        return acc;
-      }, []);
-
-    // If we have exactly the right number of sentences, return them
-    if (sentences.length === targetSegmentCount) {
-      return sentences;
+    if (targetSegmentCount <= 0) {
+      return [text];
     }
 
-    // If we have more sentences than needed, combine them
-    if (sentences.length > targetSegmentCount) {
-      const result: string[] = [];
-      const sentencesPerSegment = sentences.length / targetSegmentCount;
-
-      for (let i = 0; i < targetSegmentCount; i++) {
-        const startIdx = Math.floor(i * sentencesPerSegment);
-        const endIdx = Math.floor((i + 1) * sentencesPerSegment);
-        const segmentSentences = sentences.slice(startIdx, endIdx);
-        result.push(segmentSentences.join(' '));
-      }
-
-      return result;
+    if (targetSegmentCount === 1) {
+      return [text];
     }
 
-    // If we have fewer sentences than needed, split them further
     const result: string[] = [];
-    const charsPerSegment = Math.ceil(text.length / targetSegmentCount);
+    const totalChars = text.length;
+    const charsPerSegment = totalChars / targetSegmentCount;
 
     let currentPos = 0;
+
     for (let i = 0; i < targetSegmentCount; i++) {
+      // Calculate the ideal end position for this segment
+      const idealEndPos = Math.round((i + 1) * charsPerSegment);
+
       if (i === targetSegmentCount - 1) {
-        // Last segment - take remaining text
-        result.push(text.substring(currentPos).trim());
+        // Last segment - take all remaining text
+        const segment = text.substring(currentPos).trim();
+        result.push(segment.length > 0 ? segment : ' '); // Never return empty
       } else {
-        // Find a good break point near the target position
-        let targetPos = currentPos + charsPerSegment;
+        // Find the best break point near idealEndPos
+        let breakPos = idealEndPos;
 
-        // Try to break at sentence boundary first
-        let breakPos = text.indexOf('.', targetPos);
-        if (breakPos === -1 || breakPos > targetPos + charsPerSegment) {
-          breakPos = text.indexOf('!', targetPos);
-        }
-        if (breakPos === -1 || breakPos > targetPos + charsPerSegment) {
-          breakPos = text.indexOf('?', targetPos);
+        // Search window: ±20% of segment size
+        const searchWindow = Math.floor(charsPerSegment * 0.2);
+        const searchStart = Math.max(currentPos + 1, idealEndPos - searchWindow);
+        const searchEnd = Math.min(totalChars - 1, idealEndPos + searchWindow);
+
+        // Try to find a good break point in order of preference
+        const breakChars = ['. ', '! ', '? ', '; ', ', ', ' ', '.', '!', '?', ';', ','];
+        let bestBreakPos = -1;
+        let bestBreakScore = Infinity;
+
+        for (const breakChar of breakChars) {
+          let searchPos = searchStart;
+          while (searchPos < searchEnd) {
+            const pos = text.indexOf(breakChar, searchPos);
+            if (pos === -1 || pos >= searchEnd) break;
+
+            // Score based on distance from ideal and quality of break
+            const distance = Math.abs(pos - idealEndPos);
+            const score = distance;
+
+            if (score < bestBreakScore) {
+              bestBreakScore = score;
+              bestBreakPos = pos + breakChar.length;
+            }
+
+            searchPos = pos + 1;
+          }
+
+          // If we found a good break, use it
+          if (bestBreakPos !== -1 && bestBreakScore < searchWindow) {
+            break;
+          }
         }
 
-        // If no sentence boundary, try comma or space
-        if (breakPos === -1 || breakPos > targetPos + charsPerSegment) {
-          breakPos = text.indexOf(',', targetPos);
-        }
-        if (breakPos === -1 || breakPos > targetPos + charsPerSegment) {
-          breakPos = text.indexOf(' ', targetPos);
+        if (bestBreakPos !== -1) {
+          breakPos = bestBreakPos;
         }
 
-        // If still no break, just use target position
-        if (breakPos === -1) {
-          breakPos = targetPos;
+        // Ensure we don't go past the text
+        breakPos = Math.min(breakPos, totalChars);
+
+        // Ensure we make progress
+        if (breakPos <= currentPos) {
+          breakPos = Math.min(currentPos + Math.ceil(charsPerSegment), totalChars);
         }
 
-        result.push(text.substring(currentPos, breakPos + 1).trim());
-        currentPos = breakPos + 1;
+        const segment = text.substring(currentPos, breakPos).trim();
+        result.push(segment.length > 0 ? segment : ' '); // Never return empty
+        currentPos = breakPos;
       }
     }
 
-    return result.filter(s => s.length > 0);
+    // GUARANTEE: Always return exactly targetSegmentCount segments
+    while (result.length < targetSegmentCount) {
+      result.push(' ');
+    }
+
+    if (result.length > targetSegmentCount) {
+      result.splice(targetSegmentCount);
+    }
+
+    return result;
   }
 
   /**

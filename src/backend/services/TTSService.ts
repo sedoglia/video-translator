@@ -302,9 +302,10 @@ export class TTSService {
         const stdDev = Math.sqrt(variance);
 
         // Calculate needed rate adjustment
-        // If TTS is too fast (ratio < 1), slow down (negative rate)
-        // If TTS is too slow (ratio > 1), speed up (positive rate)
-        const rateAdjustment = (1 - durationRatio) * 100; // Convert to percentage
+        // Edge TTS rate works as playback speed: +50% = faster, -50% = slower
+        // If TTS is too fast (ratio < 1), need negative rate to slow down
+        // If TTS is too slow (ratio > 1), need positive rate to speed up
+        const rateAdjustment = (durationRatio - 1) * 100; // Convert to percentage
 
         // Edge TTS supports rate from -100% to +200%
         // Use moderate limits: -100% to +100% to avoid extreme distortion

@@ -326,7 +326,7 @@ INPUT: File Video o URL YouTube
 │    │    • Preserva pause originali tra parole (±20ms)            │ │
 │    │    • Soglia ultra-precisa: precisione 1ms                   │ │
 │    │    • Micro-aggiustamento finale per sync perfetto (±1%)     │ │
-│    │    • Accuratezza: sincronizzazione 95-99%+                  │ │
+│    │    • Accuratezza: sincronizzazione 95%+                     │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    Output: Audio ultra-sincronizzato nella lingua destinazione     │
 └────────────────────────────────────────────────────────────────────┘
@@ -381,7 +381,7 @@ OUTPUT: Video Tradotto (video_translated_to_{lingua}.mp4)
    - Padding dinamico (2-8ms) regolato in base all'analisi del ritmo vocale
    - Time-stretch individuale per segmento per matchare esattamente le durate timestamp (precisione 1ms)
    - Micro-aggiustamento finale per sincronizzazione perfetta (tolleranza ±1%)
-   - Risultato: precisione sincronizzazione labiale 95-99%+
+   - Risultato: precisione sincronizzazione labiale 95%+
    - Output ad alta qualità 24kHz
 
 6. **Remux Video**

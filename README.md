@@ -326,7 +326,7 @@ INPUT: Video File or YouTube URL
 │    │    • Preserves original pauses between words (±20ms)        │ │
 │    │    • Ultra-precise threshold: 1ms accuracy                  │ │
 │    │    • Final micro-adjustment for perfect sync (±1%)          │ │
-│    │    • Accuracy: 95-99%+ synchronization                      │ │
+│    │    • Accuracy: 95%+ synchronization                         │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    Output: Ultra-synchronized audio in target language             │
 └────────────────────────────────────────────────────────────────────┘
@@ -381,7 +381,7 @@ OUTPUT: Translated Video (video_translated_to_{language}.mp4)
    - Dynamic padding (2-8ms) adjusted based on speech rate analysis
    - Individual segment time-stretching to match exact timestamp durations (1ms precision)
    - Final micro-adjustment for perfect synchronization (±1% tolerance)
-   - Result: 95-99%+ accuracy lip-sync synchronization
+   - Result: 95%+ accuracy lip-sync synchronization
    - High-quality 24kHz output
 
 6. **Video Remuxing**

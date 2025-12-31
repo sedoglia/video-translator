@@ -282,8 +282,11 @@ export class TTSService {
       const segmentFile = path.join(tempDir, `ts_segment_${i}.mp3`);
       const segmentWav = path.join(tempDir, `ts_segment_${i}.wav`);
 
-      // Generate TTS for this segment
-      await this.generateSpeechEdgeTTS(text, voice, segmentFile);
+      // Generate TTS for this segment with adjusted rate
+      // Slow down TTS by 15% to compensate for Italian being faster than French
+      // This reduces the amount of time-stretching needed later
+      const ttsRate = '-15%'; // Slow down by 15%
+      await this.generateSpeechEdgeTTSWithRate(text, voice, segmentFile, ttsRate);
 
       // Convert to WAV
       await this.convertToWav(segmentFile, segmentWav);
@@ -323,7 +326,6 @@ export class TTSService {
         difference: difference.toFixed(4) + 's',
         stretched: needsStretching,
         speechRate: wordsPerSecond.toFixed(1) + ' wps',
-        padding: needsStretching ? this.getPaddingForRate(wordsPerSecond) : 'none',
         silenceBefore: silenceBefore.toFixed(3)
       });
     }
@@ -796,6 +798,86 @@ export class TTSService {
         })
         .save(outputPath);
     });
+  }
+
+  /**
+   * Generate speech using Microsoft Edge TTS with rate control (Neural voices)
+   */
+  private async generateSpeechEdgeTTSWithRate(text: string, voice: string, outputPath: string, rate: string = '+0%'): Promise<void> {
+    try {
+      // Sanitize and validate text
+      const sanitizedText = text.trim();
+
+      if (!sanitizedText || sanitizedText.length === 0) {
+        throw new Error('Empty text provided to Edge TTS');
+      }
+
+      this.logger.debug('Generating audio with Edge TTS', {
+        voice,
+        rate,
+        textLength: sanitizedText.length,
+        textPreview: sanitizedText.substring(0, 100)
+      });
+
+      // Wrap text in SSML to control rate
+      const ssmlText = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="it-IT"><voice name="${voice}"><prosody rate="${rate}">${sanitizedText}</prosody></voice></speak>`;
+
+      const tts = new MsEdgeTTS();
+      await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
+
+      const streams = tts.toStream(ssmlText);
+      const writable = fs.createWriteStream(outputPath);
+
+      let bytesWritten = 0;
+
+      // Pipe the TTS audio stream to file
+      await new Promise<void>((resolve, reject) => {
+        streams.audioStream.on('data', (chunk: Buffer) => {
+          bytesWritten += chunk.length;
+        });
+
+        streams.audioStream.pipe(writable);
+
+        writable.on('finish', () => {
+          this.logger.debug('Edge TTS stream finished', { bytesWritten, rate });
+          resolve();
+        });
+
+        writable.on('error', (error: Error) => {
+          this.logger.error('Error writing TTS stream', { error: error.message });
+          reject(error);
+        });
+
+        streams.audioStream.on('error', (error: Error) => {
+          this.logger.error('Error reading TTS stream', { error: error.message });
+          reject(error);
+        });
+      });
+
+      // Verify file was created and has content
+      if (!fs.existsSync(outputPath)) {
+        throw new Error('Edge TTS output file was not created');
+      }
+
+      const stats = fs.statSync(outputPath);
+      if (stats.size === 0) {
+        throw new Error('Edge TTS created an empty file');
+      }
+
+      this.logger.debug('Edge TTS synthesis complete', {
+        outputSize: stats.size,
+        rate,
+        textLength: sanitizedText.length
+      });
+    } catch (error: any) {
+      this.logger.error('Edge TTS generation failed', {
+        error: error.message,
+        voice,
+        rate,
+        textPreview: text.substring(0, 100)
+      });
+      throw error;
+    }
   }
 
   /**

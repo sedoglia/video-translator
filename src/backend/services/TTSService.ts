@@ -484,57 +484,49 @@ export class TTSService {
         });
       }
     } else {
-      // More translated segments than Whisper - use ANCHORED distribution
-      // Distribute translated segments between Whisper timestamp anchors
-      strategy = 'anchored distribution (more translated segments)';
+      // More translated segments than Whisper - use IMPROVED proportional distribution
+      // but with better anchoring to prevent drift
+      strategy = 'improved proportional distribution (more translated segments)';
 
-      // Map translated segments to Whisper segments using ratio-based anchoring
-      const ratio = translatedSegments.length / whisperSegments.length;
+      const totalTime = whisperSegments[whisperSegments.length - 1].end - whisperSegments[0].start;
+      const totalTextLength = translatedSegments.reduce((sum, seg) => sum + seg.length, 0);
+
+      // Use Whisper timestamps as checkpoints to prevent drift
+      const ratio = whisperSegments.length / translatedSegments.length;
+      let currentTime = whisperSegments[0].start;
+      let nextCheckpointIdx = 0;
 
       for (let i = 0; i < translatedSegments.length; i++) {
-        // Find which Whisper segment this translated segment corresponds to
-        const whisperIdx = Math.min(
-          Math.floor(i / ratio),
-          whisperSegments.length - 1
-        );
+        // Calculate expected checkpoint (which Whisper segment we should be near)
+        const expectedCheckpoint = Math.floor(i * ratio);
 
-        // Find the Whisper segment range for this group of translated segments
-        const nextWhisperIdx = Math.min(whisperIdx + 1, whisperSegments.length - 1);
+        // If we've passed a checkpoint, re-anchor to prevent drift
+        if (expectedCheckpoint > nextCheckpointIdx && expectedCheckpoint < whisperSegments.length) {
+          nextCheckpointIdx = expectedCheckpoint;
+          const whisperTime = whisperSegments[nextCheckpointIdx].start;
 
-        // Calculate how many translated segments map to this Whisper segment
-        const translatedStartIdx = Math.floor(whisperIdx * ratio);
-        const translatedEndIdx = Math.floor((whisperIdx + 1) * ratio);
-        const segmentsInGroup = translatedEndIdx - translatedStartIdx;
-
-        // Position within the group (0 to segmentsInGroup-1)
-        const positionInGroup = i - translatedStartIdx;
-
-        // Get time range from Whisper timestamps
-        const whisperStart = whisperSegments[whisperIdx].start;
-        const whisperEnd = whisperSegments[nextWhisperIdx].end;
-        const whisperDuration = whisperEnd - whisperStart;
-
-        // Distribute time within this Whisper range based on text length
-        const groupSegments = translatedSegments.slice(translatedStartIdx, translatedEndIdx);
-        const groupTextLength = groupSegments.reduce((sum, seg) => sum + seg.length, 0);
-        const currentSegmentProportion = translatedSegments[i].length / groupTextLength;
-
-        // Calculate cumulative proportion for segments before this one in the group
-        let cumulativeProportion = 0;
-        for (let j = 0; j < positionInGroup; j++) {
-          cumulativeProportion += groupSegments[j].length / groupTextLength;
+          // Only re-anchor if we're drifting (more than 1 second off)
+          if (Math.abs(currentTime - whisperTime) > 1.0) {
+            this.logger.debug(`Re-anchoring at segment ${i} to Whisper timestamp ${nextCheckpointIdx}`, {
+              currentTime: currentTime.toFixed(2),
+              whisperTime: whisperTime.toFixed(2),
+              drift: (currentTime - whisperTime).toFixed(2)
+            });
+            currentTime = whisperTime;
+          }
         }
 
-        // Calculate start and end times
-        const startTime = whisperStart + (whisperDuration * cumulativeProportion);
-        const duration = whisperDuration * currentSegmentProportion;
-        const endTime = startTime + duration;
+        // Calculate duration based on text proportion
+        const textProportion = translatedSegments[i].length / totalTextLength;
+        const duration = totalTime * textProportion;
 
         aligned.push({
           text: translatedSegments[i],
-          startTime,
-          endTime
+          startTime: currentTime,
+          endTime: currentTime + duration
         });
+
+        currentTime += duration;
       }
     }
 

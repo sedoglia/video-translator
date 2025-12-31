@@ -247,7 +247,7 @@ export class TTSService {
     // ADAPTIVE RATE CONTROL: Learn optimal TTS rate from first segments
     let adaptiveTtsRate = '+0%'; // Start with normal speed
     const calibrationSamples: Array<{ targetDuration: number; actualDuration: number }> = [];
-    const calibrationSegmentCount = Math.min(5, Math.floor(alignedSegments.length * 0.1)); // First 5 segments or 10%
+    const calibrationSegmentCount = Math.min(10, Math.floor(alignedSegments.length * 0.15)); // First 10 segments or 15%
 
     for (let i = 0; i < alignedSegments.length; i++) {
       const { text, startTime, endTime } = alignedSegments[i];
@@ -294,21 +294,37 @@ export class TTSService {
         const avgActualDuration = calibrationSamples.reduce((sum, s) => sum + s.actualDuration, 0) / calibrationSamples.length;
         const durationRatio = avgActualDuration / avgTargetDuration;
 
+        // Calculate variance to detect inconsistent calibration
+        const variance = calibrationSamples.reduce((sum, s) => {
+          const ratio = s.actualDuration / s.targetDuration;
+          return sum + Math.pow(ratio - durationRatio, 2);
+        }, 0) / calibrationSamples.length;
+        const stdDev = Math.sqrt(variance);
+
         // Calculate needed rate adjustment
         // If TTS is too fast (ratio < 1), slow down (negative rate)
         // If TTS is too slow (ratio > 1), speed up (positive rate)
         const rateAdjustment = (1 - durationRatio) * 100; // Convert to percentage
 
-        // Clamp to reasonable limits: -50% to +50%
-        const clampedRate = Math.max(-50, Math.min(50, rateAdjustment));
-        adaptiveTtsRate = `${clampedRate > 0 ? '+' : ''}${Math.round(clampedRate)}%`;
+        // Conservative limits: -20% to +20% to avoid extreme distortion
+        // If variance is high (stdDev > 0.3), disable rate control (too inconsistent)
+        let clampedRate = 0;
+        if (stdDev < 0.3) {
+          clampedRate = Math.max(-20, Math.min(20, rateAdjustment));
+        }
+
+        adaptiveTtsRate = clampedRate === 0 ? '+0%' : `${clampedRate > 0 ? '+' : ''}${Math.round(clampedRate)}%`;
 
         this.logger.info('Adaptive TTS rate calibrated', {
           calibrationSamples: calibrationSamples.length,
           avgTargetDuration: avgTargetDuration.toFixed(2) + 's',
           avgActualDuration: avgActualDuration.toFixed(2) + 's',
           durationRatio: durationRatio.toFixed(3),
-          calculatedRate: adaptiveTtsRate
+          variance: variance.toFixed(3),
+          stdDev: stdDev.toFixed(3),
+          calculatedRate: adaptiveTtsRate,
+          rateLimited: Math.abs(rateAdjustment) > 20,
+          varianceTooHigh: stdDev >= 0.3
         });
       }
 

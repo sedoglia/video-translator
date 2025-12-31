@@ -484,23 +484,57 @@ export class TTSService {
         });
       }
     } else {
-      // More translated segments than Whisper - distribute time proportionally
-      strategy = 'proportional distribution (more translated segments)';
-      const totalTime = whisperSegments[whisperSegments.length - 1].end - whisperSegments[0].start;
-      const totalTextLength = translatedSegments.reduce((sum, seg) => sum + seg.length, 0);
-      let currentTime = whisperSegments[0].start;
+      // More translated segments than Whisper - use ANCHORED distribution
+      // Distribute translated segments between Whisper timestamp anchors
+      strategy = 'anchored distribution (more translated segments)';
+
+      // Map translated segments to Whisper segments using ratio-based anchoring
+      const ratio = translatedSegments.length / whisperSegments.length;
 
       for (let i = 0; i < translatedSegments.length; i++) {
-        const textProportion = translatedSegments[i].length / totalTextLength;
-        const duration = totalTime * textProportion;
+        // Find which Whisper segment this translated segment corresponds to
+        const whisperIdx = Math.min(
+          Math.floor(i / ratio),
+          whisperSegments.length - 1
+        );
+
+        // Find the Whisper segment range for this group of translated segments
+        const nextWhisperIdx = Math.min(whisperIdx + 1, whisperSegments.length - 1);
+
+        // Calculate how many translated segments map to this Whisper segment
+        const translatedStartIdx = Math.floor(whisperIdx * ratio);
+        const translatedEndIdx = Math.floor((whisperIdx + 1) * ratio);
+        const segmentsInGroup = translatedEndIdx - translatedStartIdx;
+
+        // Position within the group (0 to segmentsInGroup-1)
+        const positionInGroup = i - translatedStartIdx;
+
+        // Get time range from Whisper timestamps
+        const whisperStart = whisperSegments[whisperIdx].start;
+        const whisperEnd = whisperSegments[nextWhisperIdx].end;
+        const whisperDuration = whisperEnd - whisperStart;
+
+        // Distribute time within this Whisper range based on text length
+        const groupSegments = translatedSegments.slice(translatedStartIdx, translatedEndIdx);
+        const groupTextLength = groupSegments.reduce((sum, seg) => sum + seg.length, 0);
+        const currentSegmentProportion = translatedSegments[i].length / groupTextLength;
+
+        // Calculate cumulative proportion for segments before this one in the group
+        let cumulativeProportion = 0;
+        for (let j = 0; j < positionInGroup; j++) {
+          cumulativeProportion += groupSegments[j].length / groupTextLength;
+        }
+
+        // Calculate start and end times
+        const startTime = whisperStart + (whisperDuration * cumulativeProportion);
+        const duration = whisperDuration * currentSegmentProportion;
+        const endTime = startTime + duration;
 
         aligned.push({
           text: translatedSegments[i],
-          startTime: currentTime,
-          endTime: currentTime + duration
+          startTime,
+          endTime
         });
-
-        currentTime += duration;
       }
     }
 

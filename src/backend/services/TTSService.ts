@@ -484,49 +484,67 @@ export class TTSService {
         });
       }
     } else {
-      // More translated segments than Whisper - use IMPROVED proportional distribution
-      // but with better anchoring to prevent drift
-      strategy = 'improved proportional distribution (more translated segments)';
+      // More translated segments than Whisper - map to nearest Whisper segments
+      strategy = 'nearest mapping (more translated segments)';
 
-      const totalTime = whisperSegments[whisperSegments.length - 1].end - whisperSegments[0].start;
-      const totalTextLength = translatedSegments.reduce((sum, seg) => sum + seg.length, 0);
-
-      // Use Whisper timestamps as checkpoints to prevent drift
+      // Calculate which Whisper segment each translated segment should map to
       const ratio = whisperSegments.length / translatedSegments.length;
-      let currentTime = whisperSegments[0].start;
-      let nextCheckpointIdx = 0;
 
       for (let i = 0; i < translatedSegments.length; i++) {
-        // Calculate expected checkpoint (which Whisper segment we should be near)
-        const expectedCheckpoint = Math.floor(i * ratio);
+        // Find the nearest Whisper segment for this translated segment
+        const whisperIdx = Math.min(
+          Math.floor(i * ratio),
+          whisperSegments.length - 1
+        );
 
-        // If we've passed a checkpoint, re-anchor to prevent drift
-        if (expectedCheckpoint > nextCheckpointIdx && expectedCheckpoint < whisperSegments.length) {
-          nextCheckpointIdx = expectedCheckpoint;
-          const whisperTime = whisperSegments[nextCheckpointIdx].start;
-
-          // Only re-anchor if we're drifting (more than 1 second off)
-          if (Math.abs(currentTime - whisperTime) > 1.0) {
-            this.logger.debug(`Re-anchoring at segment ${i} to Whisper timestamp ${nextCheckpointIdx}`, {
-              currentTime: currentTime.toFixed(2),
-              whisperTime: whisperTime.toFixed(2),
-              drift: (currentTime - whisperTime).toFixed(2)
-            });
-            currentTime = whisperTime;
-          }
-        }
-
-        // Calculate duration based on text proportion
-        const textProportion = translatedSegments[i].length / totalTextLength;
-        const duration = totalTime * textProportion;
-
+        // Use that Whisper segment's timing directly
         aligned.push({
           text: translatedSegments[i],
-          startTime: currentTime,
-          endTime: currentTime + duration
+          startTime: whisperSegments[whisperIdx].start,
+          endTime: whisperSegments[whisperIdx].end
         });
+      }
 
-        currentTime += duration;
+      // Fix overlaps by adjusting timestamps
+      // If segments overlap (share same Whisper timing), subdivide the time
+      for (let i = 0; i < aligned.length - 1; i++) {
+        const current = aligned[i];
+        const next = aligned[i + 1];
+
+        // Check if they overlap (same or overlapping Whisper segment)
+        if (next.startTime < current.endTime) {
+          // Find all segments that map to this same time range
+          const groupStart = i;
+          let groupEnd = i + 1;
+
+          while (groupEnd < aligned.length && aligned[groupEnd].startTime < current.endTime) {
+            groupEnd++;
+          }
+
+          // Subdivide the time range among these segments
+          const rangeStart = current.startTime;
+          const rangeEnd = current.endTime;
+          const rangeDuration = rangeEnd - rangeStart;
+          const segmentsInRange = groupEnd - groupStart;
+
+          // Calculate total text length in this range
+          const groupSegments = aligned.slice(groupStart, groupEnd);
+          const totalTextLength = groupSegments.reduce((sum, seg) => sum + seg.text.length, 0);
+
+          // Redistribute time based on text length
+          let cumulativeTime = rangeStart;
+          for (let j = groupStart; j < groupEnd; j++) {
+            const textProportion = aligned[j].text.length / totalTextLength;
+            const duration = rangeDuration * textProportion;
+
+            aligned[j].startTime = cumulativeTime;
+            aligned[j].endTime = cumulativeTime + duration;
+            cumulativeTime += duration;
+          }
+
+          // Skip the segments we just processed
+          i = groupEnd - 1;
+        }
       }
     }
 

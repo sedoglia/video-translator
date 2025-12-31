@@ -268,6 +268,17 @@ export class TTSService {
         this.logger.debug(`Added ${silenceBefore.toFixed(3)}s silence before segment ${i + 1}`);
       }
 
+      // Skip TTS generation for placeholder segments (single space or empty)
+      if (text.trim().length === 0) {
+        // Generate silence for the entire segment duration
+        const silenceFile = path.join(tempDir, `placeholder_silence_${i}.wav`);
+        await this.generateSilence(silenceFile, targetDuration);
+        segmentAudioFiles.push(silenceFile);
+
+        this.logger.debug(`Placeholder segment ${i + 1}: using ${targetDuration.toFixed(3)}s silence`);
+        continue;
+      }
+
       const segmentFile = path.join(tempDir, `ts_segment_${i}.mp3`);
       const segmentWav = path.join(tempDir, `ts_segment_${i}.wav`);
 

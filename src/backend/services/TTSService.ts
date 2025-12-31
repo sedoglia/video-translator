@@ -222,8 +222,9 @@ export class TTSService {
     // Get original audio duration for final verification
     const originalDuration = await this.getAudioDuration(originalAudioPath);
 
-    // Split translated text into sentences/phrases (we'll match them to whisper segments)
-    const translatedSegments = this.segmentTextIntelligently(translatedText);
+    // Split translated text into EXACT same number of segments as Whisper
+    // This ensures 1:1 mapping and eliminates alignment issues
+    const translatedSegments = this.splitTextProportionally(translatedText, whisperSegments.length);
 
     this.logger.debug('Segment alignment', {
       whisperSegments: whisperSegments.length,
@@ -232,8 +233,7 @@ export class TTSService {
       lastTranslatedSegment: translatedSegments[translatedSegments.length - 1]?.substring(0, 100)
     });
 
-    // Align translated segments with Whisper timestamps
-    // If counts don't match perfectly, distribute proportionally
+    // Align translated segments with Whisper timestamps (should be 1:1 now)
     const alignedSegments = this.alignTranslatedSegmentsWithTimestamps(
       translatedSegments,
       whisperSegments
@@ -603,6 +603,86 @@ export class TTSService {
     });
 
     return aligned;
+  }
+
+  /**
+   * Split text into exact number of segments proportionally
+   * This ensures 1:1 mapping with Whisper segments for perfect alignment
+   */
+  private splitTextProportionally(text: string, targetSegmentCount: number): string[] {
+    // First, try to split on natural boundaries (sentences)
+    const sentences = text
+      .split(/([.!?]+(?:\s+|$))/)
+      .filter(s => s.trim().length > 0)
+      .reduce((acc: string[], curr, idx, arr) => {
+        if (idx % 2 === 0) {
+          const punct = arr[idx + 1] || '';
+          acc.push((curr + punct).trim());
+        }
+        return acc;
+      }, []);
+
+    // If we have exactly the right number of sentences, return them
+    if (sentences.length === targetSegmentCount) {
+      return sentences;
+    }
+
+    // If we have more sentences than needed, combine them
+    if (sentences.length > targetSegmentCount) {
+      const result: string[] = [];
+      const sentencesPerSegment = sentences.length / targetSegmentCount;
+
+      for (let i = 0; i < targetSegmentCount; i++) {
+        const startIdx = Math.floor(i * sentencesPerSegment);
+        const endIdx = Math.floor((i + 1) * sentencesPerSegment);
+        const segmentSentences = sentences.slice(startIdx, endIdx);
+        result.push(segmentSentences.join(' '));
+      }
+
+      return result;
+    }
+
+    // If we have fewer sentences than needed, split them further
+    const result: string[] = [];
+    const charsPerSegment = Math.ceil(text.length / targetSegmentCount);
+
+    let currentPos = 0;
+    for (let i = 0; i < targetSegmentCount; i++) {
+      if (i === targetSegmentCount - 1) {
+        // Last segment - take remaining text
+        result.push(text.substring(currentPos).trim());
+      } else {
+        // Find a good break point near the target position
+        let targetPos = currentPos + charsPerSegment;
+
+        // Try to break at sentence boundary first
+        let breakPos = text.indexOf('.', targetPos);
+        if (breakPos === -1 || breakPos > targetPos + charsPerSegment) {
+          breakPos = text.indexOf('!', targetPos);
+        }
+        if (breakPos === -1 || breakPos > targetPos + charsPerSegment) {
+          breakPos = text.indexOf('?', targetPos);
+        }
+
+        // If no sentence boundary, try comma or space
+        if (breakPos === -1 || breakPos > targetPos + charsPerSegment) {
+          breakPos = text.indexOf(',', targetPos);
+        }
+        if (breakPos === -1 || breakPos > targetPos + charsPerSegment) {
+          breakPos = text.indexOf(' ', targetPos);
+        }
+
+        // If still no break, just use target position
+        if (breakPos === -1) {
+          breakPos = targetPos;
+        }
+
+        result.push(text.substring(currentPos, breakPos + 1).trim());
+        currentPos = breakPos + 1;
+      }
+    }
+
+    return result.filter(s => s.length > 0);
   }
 
   /**

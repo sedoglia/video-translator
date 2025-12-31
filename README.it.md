@@ -2,13 +2,6 @@
 
 Un'applicazione desktop per tradurre l'audio dei video utilizzando riconoscimento vocale AI, traduzione e sintesi vocale.
 
-> **Nota**: Questa versione italiana potrebbe non includere tutte le ultime funzionalità. Per la documentazione più aggiornata, consultare la [versione inglese](README.md).
->
-> **Nuove funzionalità (vedi README inglese)**:
-> - 🎯 Controllo adattivo della velocità TTS (Adaptive Rate Control)
-> - 📊 Script di analisi dei risultati (`analyze-results.js`)
-> - 🔄 Sistema dual-strategy (GLOBAL/PER-SEGMENT) per video con parlato variabile
-
 [🇬🇧 English Version](README.md) | [📋 Informativa Privacy](PRIVACY.it.md)
 
 ## Caratteristiche
@@ -18,7 +11,7 @@ Un'applicazione desktop per tradurre l'audio dei video utilizzando riconosciment
 - 🌍 **Traduzione Automatica** - Traduci l'audio in più lingue usando Google Translate
 - 🗣️ **Sintesi Vocale Neurale** - Voce naturale con Microsoft Edge TTS
 - ⚡ **Accelerazione GPU** - Supporto CUDA per trascrizioni più veloci (GPU NVIDIA)
-- 🎯 **Lip-Sync ULTRA-PRECISO** - Precisione 99.9%+ con traduzione a livello di frase, cross-fade e padding dinamico
+- 🎯 **Lip-Sync ULTRA-PRECISO** - Precisione 95-99%+ con controllo adattivo velocità TTS, cross-fade e padding dinamico
 - 🎬 **Elaborazione Video** - Sincronizzazione automatica audio/video mantenendo qualità originale
 
 ## Interfaccia Utente
@@ -163,6 +156,54 @@ npm run electron
    - Il video tradotto sarà salvato nella directory output
    - Formato nome file: `video_translated_to_{lingua}.mp4`
 
+### Analisi dei Risultati
+
+Dopo aver elaborato un video, puoi analizzare l'accuratezza e le metriche di prestazione usando lo script di analisi incluso:
+
+```bash
+node analyze-results.js
+```
+
+Questo script:
+- Trova automaticamente il file di log più recente
+- Estrae le metriche di calibrazione (campioni, rapporto durata, rate calcolato)
+- Mostra la percentuale di accuratezza e la strategia lip-sync utilizzata
+- Mostra le metriche di durata (durata originale vs finale, differenza)
+- Fornisce un chiaro indicatore successo/fallimento basato sulle soglie di accuratezza:
+  - ✅ **SUCCESSO**: Accuratezza ≥ 95%
+  - ⚠️ **VICINO**: Accuratezza ≥ 90% ma < 95%
+  - ❌ **DA MIGLIORARE**: Accuratezza < 90%
+
+**Esempio output:**
+```
+=== Analisi Ultimi Risultati Test ===
+
+📊 Fase Calibrazione:
+  Campioni: 10
+  Target Medio: 6.16s
+  Attuale Medio: 3.07s
+  Rapporto Durata: 0.499
+  Rate Calcolato: -50%
+
+📈 Risultati:
+  Strategia: 1:1 perfect match
+  Segmenti: 88
+  Rate Calibrazione: -50%
+
+⏱️  Durata:
+  Originale: 441.72s
+  Finale: 454.02s
+  Differenza: 12.30s
+
+🎯 Accuratezza: 97.22%
+
+✅ SUCCESSO - Accuratezza >= 95%
+```
+
+**Strategie Controllo Rate Adattivo:**
+- **Rate GLOBALE**: Usato quando la varianza è bassa (stdDev < 0.3) - applica un singolo rate all'intero video
+- **Rate PER-SEGMENTO**: Usato quando la varianza è alta (stdDev ≥ 0.3) - calcola un rate unico per ogni segmento basato sulla calibrazione
+
 ## Lingue Supportate
 
 L'applicazione supporta tutte le lingue disponibili in Google Translate, incluse:
@@ -261,13 +302,23 @@ INPUT: File Video o URL YouTube
 │    │    • Preserva il ritmo naturale del parlato                 │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ b) Sintesi Voce Neurale                                     │ │
+│    │ b) Controllo Rate TTS Adattivo                              │ │
+│    │    • Fase calibrazione: 15 segmenti o 20% del video         │ │
+│    │    • Rilevamento varianza (soglia stdDev: 0.3)              │ │
+│    │    • Rate GLOBALE: Singolo rate per parlato consistente     │ │
+│    │    • Rate PER-SEGMENTO: Rate individuali per parlato vario  │ │
+│    │    • Range rate Edge TTS: -100% a +100% (qualità massima)   │ │
+│    │    • Predizione pesata basata su campioni calibrazione      │ │
+│    └─────────────────────────────────────────────────────────────┘ │
+│    ┌─────────────────────────────────────────────────────────────┐ │
+│    │ c) Sintesi Voce Neurale                                     │ │
 │    │    • TTS neurale basato su cloud per ogni segmento          │ │
 │    │    • Selezione voce appropriata per la lingua               │ │
 │    │    • Output ad alta qualità 24kHz                           │ │
+│    │    • Sintesi controllata da rate per matching durata        │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ c) Inserimento Silenzi ULTRA-PRECISO & Lip-Sync             │ │
+│    │ d) Inserimento Silenzi ULTRA-PRECISO & Lip-Sync             │ │
 │    │    • Inserisce silenzio esatto prima/dopo ogni segmento     │ │
 │    │    • Time-stretch segmenti per matchare timestamp Whisper   │ │
 │    │    • Cross-fade triangolare 10ms tra segmenti               │ │
@@ -275,7 +326,7 @@ INPUT: File Video o URL YouTube
 │    │    • Preserva pause originali tra parole (±20ms)            │ │
 │    │    • Soglia ultra-precisa: precisione 1ms                   │ │
 │    │    • Micro-aggiustamento finale per sync perfetto (±1%)     │ │
-│    │    • Precisione: sincronizzazione 99.9%+                    │ │
+│    │    • Accuratezza: sincronizzazione 95-99%+                  │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    Output: Audio ultra-sincronizzato nella lingua destinazione     │
 └────────────────────────────────────────────────────────────────────┘
@@ -313,7 +364,14 @@ OUTPUT: Video Tradotto (video_translated_to_{lingua}.mp4)
    - Singola chiamata API per evitare rate limiting
    - Retry automatico con exponential backoff
 
-5. **Text-to-Speech con Lip-Sync ULTRA-PRECISO**
+5. **Text-to-Speech con Controllo Rate Adattivo & Lip-Sync ULTRA-PRECISO**
+   - **Controllo Rate TTS Adattivo** (NUOVO):
+     - Fase calibrazione analizza i primi 15 segmenti (20% del video)
+     - Sistema dual-strategy basato sulla varianza del parlato:
+       - **Rate GLOBALE**: Singolo aggiustamento rate per pattern di parlato consistente (stdDev < 0.3)
+       - **Rate PER-SEGMENTO**: Rate individuale per segmento per parlato variabile (stdDev ≥ 0.3)
+     - Predizione intelligente durata usando campioni calibrazione pesati
+     - Controllo rate Edge TTS: -100% a +100% per aggiustamento naturale
    - Genera voce dal testo tradotto usando voci neurali Microsoft Edge TTS
    - Traduzione a livello di frase che preserva contesto e significato
    - Codifica UTF-8 corretta che preserva caratteri accentati (à,è,ì,ò,ù,é,á)
@@ -323,7 +381,7 @@ OUTPUT: Video Tradotto (video_translated_to_{lingua}.mp4)
    - Padding dinamico (2-8ms) regolato in base all'analisi del ritmo vocale
    - Time-stretch individuale per segmento per matchare esattamente le durate timestamp (precisione 1ms)
    - Micro-aggiustamento finale per sincronizzazione perfetta (tolleranza ±1%)
-   - Risultato: precisione sincronizzazione labiale 99.9%+
+   - Risultato: precisione sincronizzazione labiale 95-99%+
    - Output ad alta qualità 24kHz
 
 6. **Remux Video**

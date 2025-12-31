@@ -31,7 +31,9 @@
       "Bash(git rm:*)",
       "Bash(git reset:*)",
       "Bash(git filter-branch:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(timeout 300 tail:*)",
+      "Bash(netstat:*)"
     ]
   }
 }

@@ -11,7 +11,7 @@ A desktop application for translating video audio using AI-powered speech recogn
 - 🌍 **Automatic Translation** - Translate audio to multiple languages using Google Translate
 - 🗣️ **Neural Text-to-Speech** - Natural-sounding voice synthesis using Microsoft Edge TTS
 - ⚡ **GPU Acceleration** - CUDA support for faster transcription (NVIDIA GPUs)
-- 🎯 **ULTRA-PRECISE Lip-Sync** - 99.9%+ accuracy with phrase-level translation, cross-fade, and dynamic padding
+- 🎯 **ULTRA-PRECISE Lip-Sync** - 95%+ accuracy with phrase-level translation, cross-fade, and dynamic padding
 - 🎬 **Video Processing** - Automatic video/audio synchronization maintaining original quality
 
 ## User Interface

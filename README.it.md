@@ -11,7 +11,7 @@ Un'applicazione desktop per tradurre l'audio dei video utilizzando riconosciment
 - 🌍 **Traduzione Automatica** - Traduci l'audio in più lingue usando Google Translate
 - 🗣️ **Sintesi Vocale Neurale** - Voce naturale con Microsoft Edge TTS
 - ⚡ **Accelerazione GPU** - Supporto CUDA per trascrizioni più veloci (GPU NVIDIA)
-- 🎯 **Lip-Sync ULTRA-PRECISO** - Precisione 95-99%+ con controllo adattivo velocità TTS, cross-fade e padding dinamico
+- 🎯 **Lip-Sync ULTRA-PRECISO** - Precisione 95%+ con controllo adattivo velocità TTS, cross-fade e padding dinamico
 - 🎬 **Elaborazione Video** - Sincronizzazione automatica audio/video mantenendo qualità originale
 
 ## Interfaccia Utente

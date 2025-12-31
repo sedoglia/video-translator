@@ -247,7 +247,7 @@ export class TTSService {
     // ADAPTIVE RATE CONTROL: Learn optimal TTS rate from first segments
     let adaptiveTtsRate = '+0%'; // Start with normal speed
     const calibrationSamples: Array<{ targetDuration: number; actualDuration: number }> = [];
-    const calibrationSegmentCount = Math.min(10, Math.floor(alignedSegments.length * 0.15)); // First 10 segments or 15%
+    const calibrationSegmentCount = Math.min(15, Math.floor(alignedSegments.length * 0.20)); // First 15 segments or 20%
 
     for (let i = 0; i < alignedSegments.length; i++) {
       const { text, startTime, endTime } = alignedSegments[i];

@@ -244,9 +244,10 @@ export class TTSService {
     // Generate TTS for each aligned segment with PRECISE timing and silence insertion
     const segmentAudioFiles: string[] = [];
 
-    // ADAPTIVE RATE CONTROL: Learn optimal TTS rate from first segments
-    let adaptiveTtsRate = '+0%'; // Start with normal speed
-    const calibrationSamples: Array<{ targetDuration: number; actualDuration: number }> = [];
+    // PER-SEGMENT ADAPTIVE RATE CONTROL: Learn TTS characteristics from calibration, then adapt per segment
+    let usePerSegmentRate = false; // Enable after calibration if variance is high
+    let globalAdaptiveTtsRate = '+0%'; // Fallback global rate for low-variance videos
+    const calibrationSamples: Array<{ targetDuration: number; actualDuration: number; textLength: number }> = [];
     const calibrationSegmentCount = Math.min(15, Math.floor(alignedSegments.length * 0.20)); // First 15 segments or 20%
 
     for (let i = 0; i < alignedSegments.length; i++) {
@@ -287,7 +288,7 @@ export class TTSService {
       const segmentFile = path.join(tempDir, `ts_segment_${i}.mp3`);
       const segmentWav = path.join(tempDir, `ts_segment_${i}.wav`);
 
-      // ADAPTIVE RATE: After calibration phase, use learned optimal rate
+      // ADAPTIVE RATE: After calibration phase, decide strategy based on variance
       if (i === calibrationSegmentCount && calibrationSamples.length > 0) {
         // Calculate average duration ratio from calibration samples
         const avgTargetDuration = calibrationSamples.reduce((sum, s) => sum + s.targetDuration, 0) / calibrationSamples.length;
@@ -309,29 +310,61 @@ export class TTSService {
 
         // Edge TTS supports rate from -100% to +200%
         // Use moderate limits: -100% to +100% to avoid extreme distortion
-        // If variance is high (stdDev > 0.3), disable rate control (too inconsistent)
-        let clampedRate = 0;
+
+        // STRATEGY SELECTION based on variance:
         if (stdDev < 0.3) {
-          clampedRate = Math.max(-100, Math.min(100, rateAdjustment));
+          // Low variance: Use global rate control (consistent TTS speed)
+          const clampedRate = Math.max(-100, Math.min(100, rateAdjustment));
+          globalAdaptiveTtsRate = clampedRate === 0 ? '+0%' : `${clampedRate > 0 ? '+' : ''}${Math.round(clampedRate)}%`;
+          usePerSegmentRate = false;
+
+          this.logger.info('Adaptive TTS rate calibrated - Using GLOBAL rate', {
+            calibrationSamples: calibrationSamples.length,
+            avgTargetDuration: avgTargetDuration.toFixed(2) + 's',
+            avgActualDuration: avgActualDuration.toFixed(2) + 's',
+            durationRatio: durationRatio.toFixed(3),
+            variance: variance.toFixed(3),
+            stdDev: stdDev.toFixed(3),
+            calculatedRate: globalAdaptiveTtsRate,
+            rateLimited: Math.abs(rateAdjustment) > 100,
+            strategy: 'global'
+          });
+        } else {
+          // High variance: Use per-segment rate control
+          usePerSegmentRate = true;
+
+          this.logger.info('Adaptive TTS rate calibrated - Using PER-SEGMENT rate', {
+            calibrationSamples: calibrationSamples.length,
+            avgTargetDuration: avgTargetDuration.toFixed(2) + 's',
+            avgActualDuration: avgActualDuration.toFixed(2) + 's',
+            durationRatio: durationRatio.toFixed(3),
+            variance: variance.toFixed(3),
+            stdDev: stdDev.toFixed(3),
+            varianceTooHigh: true,
+            strategy: 'per-segment'
+          });
         }
-
-        adaptiveTtsRate = clampedRate === 0 ? '+0%' : `${clampedRate > 0 ? '+' : ''}${Math.round(clampedRate)}%`;
-
-        this.logger.info('Adaptive TTS rate calibrated', {
-          calibrationSamples: calibrationSamples.length,
-          avgTargetDuration: avgTargetDuration.toFixed(2) + 's',
-          avgActualDuration: avgActualDuration.toFixed(2) + 's',
-          durationRatio: durationRatio.toFixed(3),
-          variance: variance.toFixed(3),
-          stdDev: stdDev.toFixed(3),
-          calculatedRate: adaptiveTtsRate,
-          rateLimited: Math.abs(rateAdjustment) > 100,
-          varianceTooHigh: stdDev >= 0.3
-        });
       }
 
-      // Generate TTS with adaptive rate
-      await this.generateSpeechEdgeTTSWithRate(text, voice, segmentFile, adaptiveTtsRate);
+      // Calculate rate for this segment
+      let segmentRate = '+0%';
+      if (i >= calibrationSegmentCount) {
+        if (usePerSegmentRate) {
+          // PER-SEGMENT: Predict rate based on target duration
+          // Use calibration data to estimate how much TTS will deviate for this duration
+          const predictedActualDuration = this.predictTTSDuration(targetDuration, calibrationSamples);
+          const segmentRatio = predictedActualDuration / targetDuration;
+          const segmentRateAdjustment = (segmentRatio - 1) * 100;
+          const clampedSegmentRate = Math.max(-100, Math.min(100, segmentRateAdjustment));
+          segmentRate = clampedSegmentRate === 0 ? '+0%' : `${clampedSegmentRate > 0 ? '+' : ''}${Math.round(clampedSegmentRate)}%`;
+        } else {
+          // GLOBAL: Use the same rate for all segments
+          segmentRate = globalAdaptiveTtsRate;
+        }
+      }
+
+      // Generate TTS with calculated rate (per-segment or global)
+      await this.generateSpeechEdgeTTSWithRate(text, voice, segmentFile, segmentRate);
 
       // Convert to WAV
       await this.convertToWav(segmentFile, segmentWav);
@@ -343,7 +376,8 @@ export class TTSService {
       if (i < calibrationSegmentCount) {
         calibrationSamples.push({
           targetDuration,
-          actualDuration
+          actualDuration,
+          textLength: text.trim().length
         });
       }
 
@@ -379,7 +413,7 @@ export class TTSService {
         difference: difference.toFixed(4) + 's',
         stretched: needsStretching,
         speechRate: wordsPerSecond.toFixed(1) + ' wps',
-        ttsRate: adaptiveTtsRate,
+        ttsRate: segmentRate,
         calibrationPhase: i < calibrationSegmentCount,
         silenceBefore: silenceBefore.toFixed(3)
       });
@@ -1023,6 +1057,44 @@ export class TTSService {
       });
       throw new Error(`Edge TTS failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Predict TTS duration for a given target duration based on calibration samples
+   * Uses linear interpolation/extrapolation from calibration data
+   */
+  private predictTTSDuration(
+    targetDuration: number,
+    calibrationSamples: Array<{ targetDuration: number; actualDuration: number; textLength: number }>
+  ): number {
+    if (calibrationSamples.length === 0) {
+      return targetDuration; // No calibration data, assume perfect match
+    }
+
+    // Find closest calibration samples by target duration
+    const sorted = [...calibrationSamples].sort((a, b) =>
+      Math.abs(a.targetDuration - targetDuration) - Math.abs(b.targetDuration - targetDuration)
+    );
+
+    // Use weighted average of 3 closest samples (or all if less than 3)
+    const samplesToUse = Math.min(3, sorted.length);
+    let totalWeight = 0;
+    let weightedPrediction = 0;
+
+    for (let i = 0; i < samplesToUse; i++) {
+      const sample = sorted[i];
+      const distance = Math.abs(sample.targetDuration - targetDuration);
+      const weight = 1 / (1 + distance); // Inverse distance weighting
+
+      // Calculate ratio for this sample and apply to target
+      const ratio = sample.actualDuration / sample.targetDuration;
+      const prediction = targetDuration * ratio;
+
+      weightedPrediction += prediction * weight;
+      totalWeight += weight;
+    }
+
+    return weightedPrediction / totalWeight;
   }
 
   /**

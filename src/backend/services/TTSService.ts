@@ -299,27 +299,9 @@ export class TTSService {
       const needsStretching = difference > 0.001; // Only skip if within 1ms (ultra-precise)
 
       if (needsStretching) {
-        // IMPROVEMENT: Dynamic padding based on segment characteristics
-        // Calculate speech rate (words per second) for this segment
-        const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
-        const wordsPerSecond = wordCount / targetDuration;
-
-        // Classify speech rate
-        let padding = 0.005; // Default 5ms
-        if (wordsPerSecond > 4.5) {
-          // Very fast speech - reduce padding to maintain flow
-          padding = 0.002; // 2ms for fast speech
-        } else if (wordsPerSecond < 2.5) {
-          // Slow/emphatic speech - increase padding for clarity
-          padding = 0.008; // 8ms for slow speech
-        } else if (wordsPerSecond >= 3.5) {
-          // Fast speech - slightly reduce padding
-          padding = 0.003; // 3ms for moderately fast speech
-        }
-        // Normal speech (2.5-3.5 wps) keeps default 5ms
-
-        const paddedTarget = targetDuration - padding;
-        await this.timeStretchAudio(segmentWav, stretchedFile, paddedTarget, actualDuration);
+        // Time-stretch to exact target duration
+        // No padding - let cross-fade handle transitions between segments
+        await this.timeStretchAudio(segmentWav, stretchedFile, targetDuration, actualDuration);
         segmentAudioFiles.push(stretchedFile);
         fs.unlinkSync(segmentWav);
       } else {

@@ -1,14 +1,8 @@
-import axios from 'axios';
 import { JobLogger } from '../utils/logger';
 import { translate } from '@vitalets/google-translate-api';
 
 export class TranslationService {
-  private libreTranslateUrl: string;
-  private apiKey?: string;
-
   constructor(private logger: JobLogger) {
-    this.libreTranslateUrl = process.env.LIBRETRANSLATE_URL || 'http://localhost:5000';
-    this.apiKey = process.env.LIBRETRANSLATE_API_KEY;
   }
 
   async translate(text: string, sourceLanguage: string, targetLanguage: string): Promise<string> {
@@ -20,32 +14,13 @@ export class TranslationService {
       return text;
     }
 
-    try {
-      // Try Google Translate first (free, no API key needed)
-      const translated = await this.translateWithGoogle(text, sourceLanguage, targetLanguage);
+    // Use Google Translate with retry logic
+    const translated = await this.translateWithGoogle(text, sourceLanguage, targetLanguage);
 
-      // Google Translate API returns properly encoded UTF-8 text
-      // Italian accented characters (à,è,ì,ò,ù,é,á) are preserved correctly
-      this.logger.stage('TRANSLATING', `Translation complete (${translated.length} chars)`);
-      return translated;
-    } catch (googleError: any) {
-      this.logger.warn('Google Translate failed, trying LibreTranslate', { error: googleError.message });
-
-      try {
-        // Fallback to LibreTranslate
-        const translated = await this.translateWithLibreTranslate(text, sourceLanguage, targetLanguage);
-        this.logger.stage('TRANSLATING', `Translation complete via LibreTranslate (${translated.length} chars)`);
-        return translated;
-      } catch (libreError: any) {
-        this.logger.error('All translation services failed', {
-          googleError: googleError.message,
-          libreError: libreError.message
-        });
-        // Last fallback: return original text
-        this.logger.warn('Returning original text without translation');
-        return text;
-      }
-    }
+    // Google Translate API returns properly encoded UTF-8 text
+    // Italian accented characters (à,è,ì,ò,ù,é,á) are preserved correctly
+    this.logger.stage('TRANSLATING', `Translation complete (${translated.length} chars)`);
+    return translated;
   }
 
   private async translateWithGoogle(
@@ -160,64 +135,16 @@ export class TranslationService {
     return translatedChunks.join(' ');
   }
 
-  private async translateWithLibreTranslate(
-    text: string,
-    sourceLanguage: string,
-    targetLanguage: string
-  ): Promise<string> {
-    const payload: any = {
-      q: text,
-      source: sourceLanguage,
-      target: targetLanguage,
-      format: 'text'
-    };
-
-    if (this.apiKey) {
-      payload.api_key = this.apiKey;
-    }
-
-    const response = await axios.post(`${this.libreTranslateUrl}/translate`, payload, {
-      timeout: 30000
-    });
-
-    if (response.data && response.data.translatedText) {
-      return response.data.translatedText;
-    }
-
-    throw new Error('Invalid response from LibreTranslate');
-  }
-
   async detectLanguage(text: string): Promise<string> {
     try {
-      // Try Google Translate detect first
+      // Use Google Translate language detection
       const result = await translate(text.substring(0, 1000), { to: 'en' });
       // The new version returns raw response with detected language
       if (result.raw && Array.isArray(result.raw) && result.raw[2]) {
         return result.raw[2]; // Language code
       }
     } catch (error) {
-      this.logger.debug('Google language detection failed, trying LibreTranslate', { error });
-    }
-
-    try {
-      // Fallback to LibreTranslate
-      const payload: any = {
-        q: text.substring(0, 1000) // Limit to first 1000 chars for detection
-      };
-
-      if (this.apiKey) {
-        payload.api_key = this.apiKey;
-      }
-
-      const response = await axios.post(`${this.libreTranslateUrl}/detect`, payload, {
-        timeout: 10000
-      });
-
-      if (response.data && response.data.length > 0) {
-        return response.data[0].language;
-      }
-    } catch (error) {
-      this.logger.debug('LibreTranslate detection failed', { error });
+      this.logger.warn('Google language detection failed', { error });
     }
 
     return 'en'; // Default fallback

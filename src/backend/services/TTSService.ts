@@ -306,11 +306,12 @@ export class TTSService {
         // If TTS is too slow (ratio > 1), speed up (positive rate)
         const rateAdjustment = (1 - durationRatio) * 100; // Convert to percentage
 
-        // Conservative limits: -20% to +20% to avoid extreme distortion
+        // Edge TTS supports rate from -100% to +200%
+        // Use moderate limits: -100% to +100% to avoid extreme distortion
         // If variance is high (stdDev > 0.3), disable rate control (too inconsistent)
         let clampedRate = 0;
         if (stdDev < 0.3) {
-          clampedRate = Math.max(-20, Math.min(20, rateAdjustment));
+          clampedRate = Math.max(-100, Math.min(100, rateAdjustment));
         }
 
         adaptiveTtsRate = clampedRate === 0 ? '+0%' : `${clampedRate > 0 ? '+' : ''}${Math.round(clampedRate)}%`;
@@ -323,7 +324,7 @@ export class TTSService {
           variance: variance.toFixed(3),
           stdDev: stdDev.toFixed(3),
           calculatedRate: adaptiveTtsRate,
-          rateLimited: Math.abs(rateAdjustment) > 20,
+          rateLimited: Math.abs(rateAdjustment) > 100,
           varianceTooHigh: stdDev >= 0.3
         });
       }

@@ -244,6 +244,11 @@ export class TTSService {
     // Generate TTS for each aligned segment with PRECISE timing and silence insertion
     const segmentAudioFiles: string[] = [];
 
+    // ADAPTIVE RATE CONTROL: Learn optimal TTS rate from first segments
+    let adaptiveTtsRate = '+0%'; // Start with normal speed
+    const calibrationSamples: Array<{ targetDuration: number; actualDuration: number }> = [];
+    const calibrationSegmentCount = Math.min(5, Math.floor(alignedSegments.length * 0.1)); // First 5 segments or 10%
+
     for (let i = 0; i < alignedSegments.length; i++) {
       const { text, startTime, endTime } = alignedSegments[i];
       const targetDuration = endTime - startTime;
@@ -282,17 +287,47 @@ export class TTSService {
       const segmentFile = path.join(tempDir, `ts_segment_${i}.mp3`);
       const segmentWav = path.join(tempDir, `ts_segment_${i}.wav`);
 
-      // Generate TTS for this segment with adjusted rate
-      // Slow down TTS by 15% to compensate for Italian being faster than French
-      // This reduces the amount of time-stretching needed later
-      const ttsRate = '-15%'; // Slow down by 15%
-      await this.generateSpeechEdgeTTSWithRate(text, voice, segmentFile, ttsRate);
+      // ADAPTIVE RATE: After calibration phase, use learned optimal rate
+      if (i === calibrationSegmentCount && calibrationSamples.length > 0) {
+        // Calculate average duration ratio from calibration samples
+        const avgTargetDuration = calibrationSamples.reduce((sum, s) => sum + s.targetDuration, 0) / calibrationSamples.length;
+        const avgActualDuration = calibrationSamples.reduce((sum, s) => sum + s.actualDuration, 0) / calibrationSamples.length;
+        const durationRatio = avgActualDuration / avgTargetDuration;
+
+        // Calculate needed rate adjustment
+        // If TTS is too fast (ratio < 1), slow down (negative rate)
+        // If TTS is too slow (ratio > 1), speed up (positive rate)
+        const rateAdjustment = (1 - durationRatio) * 100; // Convert to percentage
+
+        // Clamp to reasonable limits: -50% to +50%
+        const clampedRate = Math.max(-50, Math.min(50, rateAdjustment));
+        adaptiveTtsRate = `${clampedRate > 0 ? '+' : ''}${Math.round(clampedRate)}%`;
+
+        this.logger.info('Adaptive TTS rate calibrated', {
+          calibrationSamples: calibrationSamples.length,
+          avgTargetDuration: avgTargetDuration.toFixed(2) + 's',
+          avgActualDuration: avgActualDuration.toFixed(2) + 's',
+          durationRatio: durationRatio.toFixed(3),
+          calculatedRate: adaptiveTtsRate
+        });
+      }
+
+      // Generate TTS with adaptive rate
+      await this.generateSpeechEdgeTTSWithRate(text, voice, segmentFile, adaptiveTtsRate);
 
       // Convert to WAV
       await this.convertToWav(segmentFile, segmentWav);
 
       // Get actual duration
       const actualDuration = await this.getAudioDuration(segmentWav);
+
+      // Collect calibration samples from first segments (before adaptive rate kicks in)
+      if (i < calibrationSegmentCount) {
+        calibrationSamples.push({
+          targetDuration,
+          actualDuration
+        });
+      }
 
       // IMPROVEMENT 4: Ultra-precise time-stretching with 1ms threshold
       // ALWAYS time-stretch to match exact timestamp duration for perfect sync
@@ -326,6 +361,8 @@ export class TTSService {
         difference: difference.toFixed(4) + 's',
         stretched: needsStretching,
         speechRate: wordsPerSecond.toFixed(1) + ' wps',
+        ttsRate: adaptiveTtsRate,
+        calibrationPhase: i < calibrationSegmentCount,
         silenceBefore: silenceBefore.toFixed(3)
       });
     }

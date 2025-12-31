@@ -462,26 +462,42 @@ export class TTSService {
         });
       }
     } else if (translatedSegments.length < whisperSegments.length) {
-      // More Whisper segments than translated - group Whisper segments
-      strategy = 'grouping (fewer translated segments)';
-      const ratio = whisperSegments.length / translatedSegments.length;
+      // More Whisper segments than translated - map each Whisper to nearest translated
+      strategy = 'reverse nearest mapping (fewer translated segments)';
 
-      for (let i = 0; i < translatedSegments.length; i++) {
-        const startIdx = Math.floor(i * ratio);
-        // End index should be exclusive (the start of the next group)
-        // For the last segment, use whisperSegments.length as the exclusive end
-        const endIdx = i === translatedSegments.length - 1
-          ? whisperSegments.length
-          : Math.floor((i + 1) * ratio);
+      // First, create a mapping of which translated segment each Whisper segment belongs to
+      const ratio = translatedSegments.length / whisperSegments.length;
+      const whisperToTranslated: number[] = [];
 
-        // Use endIdx - 1 as the inclusive end index for the timestamp
-        const endTimestampIdx = Math.min(endIdx - 1, whisperSegments.length - 1);
+      for (let i = 0; i < whisperSegments.length; i++) {
+        const translatedIdx = Math.min(
+          Math.floor(i * ratio),
+          translatedSegments.length - 1
+        );
+        whisperToTranslated.push(translatedIdx);
+      }
 
-        aligned.push({
-          text: translatedSegments[i],
-          startTime: whisperSegments[startIdx].start,
-          endTime: whisperSegments[endTimestampIdx].end
-        });
+      // Group consecutive Whisper segments that map to the same translated segment
+      for (let transIdx = 0; transIdx < translatedSegments.length; transIdx++) {
+        // Find all Whisper segments that map to this translated segment
+        const whisperIndices: number[] = [];
+        for (let i = 0; i < whisperToTranslated.length; i++) {
+          if (whisperToTranslated[i] === transIdx) {
+            whisperIndices.push(i);
+          }
+        }
+
+        if (whisperIndices.length > 0) {
+          // Use the time range from first to last Whisper segment in this group
+          const firstWhisperIdx = whisperIndices[0];
+          const lastWhisperIdx = whisperIndices[whisperIndices.length - 1];
+
+          aligned.push({
+            text: translatedSegments[transIdx],
+            startTime: whisperSegments[firstWhisperIdx].start,
+            endTime: whisperSegments[lastWhisperIdx].end
+          });
+        }
       }
     } else {
       // More translated segments than Whisper - map to nearest Whisper segments

@@ -53,34 +53,59 @@ export class TranslationService {
     sourceLanguage: string,
     targetLanguage: string
   ): Promise<string> {
-    this.logger.debug('Using Google Translate', { from: sourceLanguage, to: targetLanguage });
+    this.logger.debug('Using Google Translate', { from: sourceLanguage, to: targetLanguage, textLength: text.length });
 
-    // Implement retry logic with exponential backoff for rate limiting
-    const maxRetries = 3;
+    // Implement retry logic with exponential backoff for rate limiting and connection errors
+    const maxRetries = 5; // Increased from 3
     let lastError: any;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         if (attempt > 0) {
-          // Exponential backoff: 5s, 10s, 20s
-          const delay = 5000 * Math.pow(2, attempt - 1);
-          this.logger.debug(`Retrying Google Translate after ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+          // Exponential backoff: 3s, 6s, 12s, 24s, 48s
+          const delay = 3000 * Math.pow(2, attempt - 1);
+          this.logger.info(`Retrying Google Translate after ${delay}ms (attempt ${attempt + 1}/${maxRetries})`, {
+            previousError: lastError?.message
+          });
           await new Promise(resolve => setTimeout(resolve, delay));
         }
 
         // Split text into chunks if too long (Google Translate has limits)
         const maxChunkSize = 5000;
         if (text.length <= maxChunkSize) {
-          const result = await translate(text, { from: sourceLanguage, to: targetLanguage });
+          this.logger.debug('Sending translation request to Google', { textLength: text.length });
+          const result = await translate(text, {
+            from: sourceLanguage,
+            to: targetLanguage,
+            fetchOptions: {
+              timeout: 30000 // 30 second timeout
+            }
+          });
+          this.logger.debug('Google Translate succeeded', { resultLength: result.text.length });
           return result.text;
         }
 
         // For long texts, translate in chunks
+        this.logger.debug('Text too long, using chunked translation');
         return await this.translateLongText(text, sourceLanguage, targetLanguage);
       } catch (error: any) {
         lastError = error;
-        if (error.message && error.message.includes('Too Many Requests')) {
-          this.logger.warn(`Rate limited by Google (attempt ${attempt + 1}/${maxRetries})`);
+        this.logger.warn(`Google Translate attempt ${attempt + 1}/${maxRetries} failed`, {
+          error: error.message,
+          errorType: error.constructor.name,
+          errorCode: error.code,
+          willRetry: attempt < maxRetries - 1
+        });
+
+        // Retry on network errors, rate limiting, or timeout
+        if (error.message && (
+          error.message.includes('Too Many Requests') ||
+          error.message.includes('ECONNRESET') ||
+          error.message.includes('ETIMEDOUT') ||
+          error.message.includes('request') ||
+          error.message.includes('fetch') ||
+          error.message.includes('failed')
+        )) {
           continue; // Retry
         } else {
           throw error; // Other errors, don't retry
@@ -89,6 +114,7 @@ export class TranslationService {
     }
 
     // All retries failed
+    this.logger.error('All Google Translate retries exhausted', { lastError: lastError?.message });
     throw lastError;
   }
 

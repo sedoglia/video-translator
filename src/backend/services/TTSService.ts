@@ -405,7 +405,7 @@ export class TTSService {
     return new Promise((resolve, reject) => {
       const args = [
         '-f', 'lavfi',
-        '-i', `anullsrc=channel_layout=mono:sample_rate=16000`,
+        '-i', `anullsrc=channel_layout=mono:sample_rate=44100`,
         '-t', durationSeconds.toString(),
         '-acodec', 'pcm_s16le',
         '-y',

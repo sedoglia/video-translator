@@ -34,6 +34,7 @@ const lines = content.split('\n');
 
 // Extract key metrics
 let calibrationRate = null;
+let calibrationInfo = null;
 let accuracy = null;
 let originalDuration = null;
 let finalDuration = null;
@@ -52,14 +53,15 @@ for (const line of lines) {
       const avgActualMatch = line.match(/"avgActualDuration":"([^"]+)"/);
       const ratioMatch = line.match(/"durationRatio":"([^"]+)"/);
 
+      // Store calibration info (will be overwritten by latest)
       if (samplesMatch) {
-        console.log('📊 Calibration Phase:');
-        console.log('  Samples:', samplesMatch[1]);
-        if (avgTargetMatch) console.log('  Avg Target:', avgTargetMatch[1]);
-        if (avgActualMatch) console.log('  Avg Actual:', avgActualMatch[1]);
-        if (ratioMatch) console.log('  Duration Ratio:', ratioMatch[1]);
-        console.log('  Calculated Rate:', calibrationRate);
-        console.log('');
+        calibrationInfo = {
+          samples: samplesMatch[1],
+          avgTarget: avgTargetMatch ? avgTargetMatch[1] : 'N/A',
+          avgActual: avgActualMatch ? avgActualMatch[1] : 'N/A',
+          ratio: ratioMatch ? ratioMatch[1] : 'N/A',
+          rate: calibrationRate
+        };
       }
     }
 
@@ -87,6 +89,17 @@ for (const line of lines) {
   } catch (e) {
     // Skip malformed lines
   }
+}
+
+// Display calibration info (only the latest one)
+if (calibrationInfo) {
+  console.log('📊 Calibration Phase:');
+  console.log('  Samples:', calibrationInfo.samples);
+  console.log('  Avg Target:', calibrationInfo.avgTarget);
+  console.log('  Avg Actual:', calibrationInfo.avgActual);
+  console.log('  Duration Ratio:', calibrationInfo.ratio);
+  console.log('  Calculated Rate:', calibrationInfo.rate);
+  console.log('');
 }
 
 console.log('📈 Results:');

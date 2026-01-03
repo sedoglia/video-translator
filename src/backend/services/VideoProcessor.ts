@@ -119,9 +119,25 @@ export class VideoProcessor extends EventEmitter {
       // Validate input path for security (prevents path traversal attacks)
       validateInputPath(this.request.inputPath);
 
+      // Resolve and validate local input against a safe uploads root
+      const localUploadsRoot = path.resolve(process.cwd(), process.env.LOCAL_UPLOAD_ROOT || 'uploads');
+      const inputFileName = path.basename(this.request.inputPath);
+      const safeInputPath = path.resolve(localUploadsRoot, inputFileName);
+
+      // Ensure the resolved path is contained within the uploads root
+      const realUploadsRoot = fs.realpathSync.native
+        ? fs.realpathSync.native(localUploadsRoot)
+        : fs.realpathSync(localUploadsRoot);
+      const realInputPath = fs.existsSync(safeInputPath)
+        ? (fs.realpathSync.native ? fs.realpathSync.native(safeInputPath) : fs.realpathSync(safeInputPath))
+        : safeInputPath;
+      if (!realInputPath.startsWith(realUploadsRoot + path.sep) && realInputPath !== realUploadsRoot) {
+        throw new Error('Invalid input file path');
+      }
+
       // Copy to temp directory
-      const videoPath = path.join(this.tempPaths!.baseDir, path.basename(this.request.inputPath));
-      fs.copyFileSync(this.request.inputPath, videoPath);
+      const videoPath = path.join(this.tempPaths!.baseDir, path.basename(realInputPath));
+      fs.copyFileSync(realInputPath, videoPath);
 
       this.emitProgress('DOWNLOADING', 15, 'Video file validated');
       return videoPath;

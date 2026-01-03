@@ -6,26 +6,26 @@ import * as fs from 'fs';
  * Prevents path traversal attacks and other security vulnerabilities
  */
 
+// Base directory under which all output paths must reside
+// Adjust this as needed for your deployment environment.
+const OUTPUT_ROOT = path.resolve(process.cwd(), 'output');
+
 /**
  * Validates that a path doesn't contain path traversal attempts
  * @param filePath - The path to validate
  * @returns true if the path is safe, false otherwise
  */
 export function isPathSafe(filePath: string): boolean {
-  // Normalize the path to resolve any . or .. segments
-  const normalizedPath = path.normalize(filePath);
-
-  // Check for path traversal attempts
-  if (normalizedPath.includes('..')) {
+  // Ensure the path doesn't contain null bytes (security vulnerability)
+  if (filePath.includes('\0')) {
     return false;
   }
 
-  // Check for absolute paths that go outside expected directories
-  // (This is a basic check - adjust based on your security requirements)
-  const resolved = path.resolve(filePath);
+  // Normalize the path to resolve any . or .. segments
+  const normalizedPath = path.normalize(filePath);
 
-  // Ensure the path doesn't contain null bytes (security vulnerability)
-  if (filePath.includes('\0')) {
+  // Basic check for path traversal attempts
+  if (normalizedPath.includes('..')) {
     return false;
   }
 
@@ -96,19 +96,19 @@ export function validateOutputDir(outputDir: string): void {
     throw new Error('Invalid output directory: must be a non-empty string');
   }
 
-  // Check for path traversal attempts
+  // Check for obvious path traversal attempts on the raw input
   if (!isPathSafe(outputDir)) {
     throw new Error('Invalid output directory: path traversal detected');
   }
 
-  // Resolve to absolute path - this is safe after isPathSafe() check
-  const absolutePath = path.resolve(outputDir);
+  // Resolve the output directory relative to the configured OUTPUT_ROOT.
+  // This confines all output under a single safe root directory.
+  const absolutePath = path.resolve(OUTPUT_ROOT, outputDir);
 
-  // Additional security check: ensure resolved path doesn't contain '..'
-  // after resolution (defense in depth)
+  // Additional security check: ensure resolved path stays within OUTPUT_ROOT
   const normalizedResolved = path.normalize(absolutePath);
-  if (normalizedResolved.includes('..')) {
-    throw new Error('Invalid output directory: path traversal detected after resolution');
+  if (!normalizedResolved.startsWith(OUTPUT_ROOT + path.sep)) {
+    throw new Error('Invalid output directory: path escapes allowed output root');
   }
 
   // Create directory if it doesn't exist using the sanitized path

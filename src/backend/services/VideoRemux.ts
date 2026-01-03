@@ -1,6 +1,6 @@
 import ffmpeg from 'fluent-ffmpeg';
 import { JobLogger } from '../utils/logger';
-import { validateInputPath } from '../utils/path-validator';
+import { validateInputPath, validateOutputDir } from '../utils/path-validator';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -21,6 +21,7 @@ export class VideoRemux {
     // Validate output path - outputPath is already validated by caller (VideoProcessor)
     // but we ensure the directory exists safely
     const outputDir = path.dirname(outputPath);
+    validateOutputDir(outputDir);
     if (!fs.existsSync(outputDir)) {
       this.logger.debug('Creating output directory', { outputDir });
       fs.mkdirSync(outputDir, { recursive: true });

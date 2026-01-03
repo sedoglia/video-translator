@@ -63,16 +63,23 @@ export function validateInputPath(inputPath: string): void {
     throw new Error('Invalid input path: path traversal detected');
   }
 
-  // Resolve to absolute path
+  // Resolve to absolute path - this is safe after isPathSafe() check
   const absolutePath = path.resolve(inputPath);
 
-  // Check if file exists
-  if (!fs.existsSync(absolutePath)) {
+  // Additional security check: ensure resolved path doesn't contain '..'
+  // after resolution (defense in depth)
+  const normalizedResolved = path.normalize(absolutePath);
+  if (normalizedResolved.includes('..')) {
+    throw new Error('Invalid input path: path traversal detected after resolution');
+  }
+
+  // Check if file exists using the sanitized path
+  if (!fs.existsSync(normalizedResolved)) {
     throw new Error(`File not found: ${inputPath}`);
   }
 
   // Ensure it's a file, not a directory
-  const stats = fs.statSync(absolutePath);
+  const stats = fs.statSync(normalizedResolved);
   if (!stats.isFile()) {
     throw new Error(`Path is not a file: ${inputPath}`);
   }
@@ -94,16 +101,23 @@ export function validateOutputDir(outputDir: string): void {
     throw new Error('Invalid output directory: path traversal detected');
   }
 
-  // Resolve to absolute path
+  // Resolve to absolute path - this is safe after isPathSafe() check
   const absolutePath = path.resolve(outputDir);
 
-  // Create directory if it doesn't exist
-  if (!fs.existsSync(absolutePath)) {
-    fs.mkdirSync(absolutePath, { recursive: true });
+  // Additional security check: ensure resolved path doesn't contain '..'
+  // after resolution (defense in depth)
+  const normalizedResolved = path.normalize(absolutePath);
+  if (normalizedResolved.includes('..')) {
+    throw new Error('Invalid output directory: path traversal detected after resolution');
+  }
+
+  // Create directory if it doesn't exist using the sanitized path
+  if (!fs.existsSync(normalizedResolved)) {
+    fs.mkdirSync(normalizedResolved, { recursive: true });
   }
 
   // Ensure it's a directory
-  const stats = fs.statSync(absolutePath);
+  const stats = fs.statSync(normalizedResolved);
   if (!stats.isDirectory()) {
     throw new Error(`Path is not a directory: ${outputDir}`);
   }

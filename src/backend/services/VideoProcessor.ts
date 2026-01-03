@@ -3,6 +3,7 @@ import path from 'path';
 import { EventEmitter } from 'events';
 import { JobLogger } from '../utils/logger';
 import { createJobTempDir, cleanupTempDir, getVideoFileName } from '../utils/paths';
+import { validateInputPath, validateOutputDir } from '../utils/path-validator';
 import { YoutubeDownloader } from './YoutubeDownloader';
 import { AudioExtractor } from './AudioExtractor';
 import { WhisperService } from './WhisperService';
@@ -115,9 +116,8 @@ export class VideoProcessor extends EventEmitter {
         throw new Error('Input file path is required');
       }
 
-      if (!fs.existsSync(this.request.inputPath)) {
-        throw new Error(`Video file not found: ${this.request.inputPath}`);
-      }
+      // Validate input path for security (prevents path traversal attacks)
+      validateInputPath(this.request.inputPath);
 
       // Copy to temp directory
       const videoPath = path.join(this.tempPaths!.baseDir, path.basename(this.request.inputPath));
@@ -194,11 +194,8 @@ export class VideoProcessor extends EventEmitter {
   ): Promise<string> {
     this.emitProgress('REMUXING', 90, 'Combining video with new audio...');
 
-    // Ensure output directory exists
-    if (!fs.existsSync(this.request.outputDir)) {
-      this.logger.debug('Creating output directory', { outputDir: this.request.outputDir });
-      fs.mkdirSync(this.request.outputDir, { recursive: true });
-    }
+    // Validate and ensure output directory exists (prevents path traversal attacks)
+    validateOutputDir(this.request.outputDir);
 
     // Generate final output filename
     const outputFileName = getVideoFileName(

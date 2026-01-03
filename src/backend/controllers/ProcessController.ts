@@ -4,6 +4,7 @@ import { VideoProcessor } from '../services/VideoProcessor';
 import { detectCudaAvailability, shouldUseCuda } from '../utils/gpu-detector';
 import { getOutputDir } from '../utils/paths';
 import { logger } from '../utils/logger';
+import { validateOutputDir } from '../utils/path-validator';
 import type { ProcessRequest, GPUInfo } from '../../shared/types';
 import type { Server as SocketIOServer } from 'socket.io';
 
@@ -52,6 +53,11 @@ export class ProcessController {
       }
 
       const useCuda = shouldUseCuda(requestData.useCuda, this.gpuInfo);
+
+      // Validate output directory override, if provided
+      if (requestData.outputDir) {
+        validateOutputDir(requestData.outputDir);
+      }
 
       // Create process request
       const processRequest: ProcessRequest = {

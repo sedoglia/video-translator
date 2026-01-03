@@ -6,9 +6,8 @@ import * as fs from 'fs';
  * Prevents path traversal attacks and other security vulnerabilities
  */
 
-// Base directory under which all output paths must reside
-// Adjust this as needed for your deployment environment.
-const OUTPUT_ROOT = path.resolve(process.cwd(), 'output');
+// Note: For Electron desktop apps, users can choose any output directory.
+// We validate for path traversal but don't confine to a specific root.
 
 /**
  * Validates that a path doesn't contain path traversal attempts
@@ -96,19 +95,18 @@ export function validateOutputDir(outputDir: string): void {
     throw new Error('Invalid output directory: must be a non-empty string');
   }
 
-  // Check for obvious path traversal attempts on the raw input
+  // Check for path traversal attempts on the raw input
   if (!isPathSafe(outputDir)) {
     throw new Error('Invalid output directory: path traversal detected');
   }
 
-  // Resolve the output directory relative to the configured OUTPUT_ROOT.
-  // This confines all output under a single safe root directory.
-  const absolutePath = path.resolve(OUTPUT_ROOT, outputDir);
+  // Resolve to absolute path to handle both relative and absolute paths
+  const absolutePath = path.resolve(outputDir);
 
-  // Additional security check: ensure resolved path stays within OUTPUT_ROOT
+  // Additional security check: ensure normalized path doesn't contain '..'
   const normalizedResolved = path.normalize(absolutePath);
-  if (!normalizedResolved.startsWith(OUTPUT_ROOT + path.sep)) {
-    throw new Error('Invalid output directory: path escapes allowed output root');
+  if (normalizedResolved.includes('..')) {
+    throw new Error('Invalid output directory: path traversal detected after resolution');
   }
 
   // Create directory if it doesn't exist using the sanitized path

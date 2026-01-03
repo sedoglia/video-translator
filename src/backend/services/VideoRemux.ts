@@ -18,14 +18,9 @@ export class VideoRemux {
     validateInputPath(originalVideoPath);
     validateInputPath(newAudioPath);
 
-    // Validate output path - outputPath is already validated by caller (VideoProcessor)
-    // but we ensure the directory exists safely
+    // Validate and ensure output directory exists safely (prevents path traversal attacks)
     const outputDir = path.dirname(outputPath);
     validateOutputDir(outputDir);
-    if (!fs.existsSync(outputDir)) {
-      this.logger.debug('Creating output directory', { outputDir });
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
 
     return new Promise((resolve, reject) => {
       const command = ffmpeg();

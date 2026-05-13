@@ -222,21 +222,29 @@ export class TTSService {
     // Get original audio duration for final verification
     const originalDuration = await this.getAudioDuration(originalAudioPath);
 
-    // Split translated text into EXACT same number of segments as Whisper
-    // This ensures 1:1 mapping and eliminates alignment issues
-    const translatedSegments = this.splitTextProportionally(translatedText, whisperSegments.length);
+    // Group consecutive Whisper segments into sentence-level units so that each
+    // TTS call receives a full sentence — preserving Edge TTS's natural prosody.
+    const sentenceGroups = this.groupWhisperSegmentsBySentence(whisperSegments);
+    this.logger.info('Grouped Whisper segments by sentence boundaries', {
+      rawSegments: whisperSegments.length,
+      sentenceGroups: sentenceGroups.length,
+      avgSegmentsPerGroup: (whisperSegments.length / Math.max(1, sentenceGroups.length)).toFixed(2)
+    });
+
+    // Split translated text into the same number of sentence-level groups
+    const translatedSegments = this.splitTextProportionally(translatedText, sentenceGroups.length);
 
     this.logger.debug('Segment alignment', {
-      whisperSegments: whisperSegments.length,
+      sentenceGroups: sentenceGroups.length,
       translatedSegments: translatedSegments.length,
       firstTranslatedSegment: translatedSegments[0]?.substring(0, 100),
       lastTranslatedSegment: translatedSegments[translatedSegments.length - 1]?.substring(0, 100)
     });
 
-    // Align translated segments with Whisper timestamps (should be 1:1 now)
+    // Align translated segments with sentence-group timestamps (1:1 now)
     const alignedSegments = this.alignTranslatedSegmentsWithTimestamps(
       translatedSegments,
-      whisperSegments
+      sentenceGroups
     );
 
     this.logger.debug('Aligned segments for processing', { count: alignedSegments.length });
@@ -308,13 +316,14 @@ export class TTSService {
         // If TTS is too slow (ratio > 1), need positive rate to speed up
         const rateAdjustment = (durationRatio - 1) * 100; // Convert to percentage
 
-        // Edge TTS supports rate from -100% to +200%
-        // Use moderate limits: -100% to +100% to avoid extreme distortion
+        // Edge TTS supports rate from -100% to +200% but quality degrades
+        // sharply beyond ±35%. Tight clamping preserves voice naturalness;
+        // residual timing mismatch is handled by time-stretching at the end.
 
         // STRATEGY SELECTION based on variance:
         if (stdDev < 0.3) {
           // Low variance: Use global rate control (consistent TTS speed)
-          const clampedRate = Math.max(-100, Math.min(100, rateAdjustment));
+          const clampedRate = Math.max(-35, Math.min(35, rateAdjustment));
           globalAdaptiveTtsRate = clampedRate === 0 ? '+0%' : `${clampedRate > 0 ? '+' : ''}${Math.round(clampedRate)}%`;
           usePerSegmentRate = false;
 
@@ -326,7 +335,7 @@ export class TTSService {
             variance: variance.toFixed(3),
             stdDev: stdDev.toFixed(3),
             calculatedRate: globalAdaptiveTtsRate,
-            rateLimited: Math.abs(rateAdjustment) > 100,
+            rateLimited: Math.abs(rateAdjustment) > 35,
             strategy: 'global'
           });
         } else {
@@ -355,7 +364,7 @@ export class TTSService {
           const predictedActualDuration = this.predictTTSDuration(targetDuration, calibrationSamples);
           const segmentRatio = predictedActualDuration / targetDuration;
           const segmentRateAdjustment = (segmentRatio - 1) * 100;
-          const clampedSegmentRate = Math.max(-100, Math.min(100, segmentRateAdjustment));
+          const clampedSegmentRate = Math.max(-35, Math.min(35, segmentRateAdjustment));
           segmentRate = clampedSegmentRate === 0 ? '+0%' : `${clampedSegmentRate > 0 ? '+' : ''}${Math.round(clampedSegmentRate)}%`;
         } else {
           // GLOBAL: Use the same rate for all segments
@@ -381,12 +390,14 @@ export class TTSService {
         });
       }
 
-      // IMPROVEMENT 4: Ultra-precise time-stretching with 1ms threshold
-      // ALWAYS time-stretch to match exact timestamp duration for perfect sync
-      // Even tiny mismatches accumulate across many segments, so we must be precise
+      // Stretch only on meaningful mismatch: >5% relative AND >100ms absolute.
+      // Tiny scrubs through atempo (PSOLA) introduce subtle artifacts that
+      // accumulate over many segments and flatten the prosody — the
+      // remaining drift is absorbed by the final whole-track adjustment.
       const stretchedFile = path.join(tempDir, `ts_stretched_${i}.wav`);
       const difference = Math.abs(targetDuration - actualDuration);
-      const needsStretching = difference > 0.001; // Only skip if within 1ms (ultra-precise)
+      const relativeDiff = targetDuration > 0 ? difference / targetDuration : 0;
+      const needsStretching = relativeDiff > 0.05 && difference > 0.1;
 
       if (needsStretching) {
         // Time-stretch to exact target duration
@@ -687,6 +698,55 @@ export class TTSService {
     });
 
     return aligned;
+  }
+
+  /**
+   * Group consecutive Whisper segments into sentence-level units.
+   * A new group starts after sentence-terminating punctuation (.!?…), or when
+   * the merged duration would exceed maxGroupDuration. This dramatically
+   * reduces the number of separate TTS calls and lets Edge TTS produce a
+   * natural intonation contour over a whole sentence instead of fragments.
+   *
+   * Why: lip-sync needs to match phrase boundaries, not every word — the eye
+   * tolerates 100-300ms drift inside a phrase but notices sentence-start
+   * misalignment. Trade-off: slightly looser intra-sentence sync for
+   * dramatically more natural prosody.
+   */
+  private groupWhisperSegmentsBySentence(
+    whisperSegments: any[],
+    maxGroupDuration: number = 12
+  ): Array<{ start: number; end: number; text: string; sourceCount: number }> {
+    if (whisperSegments.length === 0) return [];
+
+    const endsSentence = (text: string): boolean =>
+      /[.!?…。！？।]["')\]\s]*$/.test(text);
+
+    const groups: Array<{ start: number; end: number; text: string; sourceCount: number }> = [];
+    let current = {
+      start: whisperSegments[0].start,
+      end: whisperSegments[0].end,
+      text: (whisperSegments[0].text || '').trim(),
+      sourceCount: 1
+    };
+
+    for (let i = 1; i < whisperSegments.length; i++) {
+      const seg = whisperSegments[i];
+      const segText = (seg.text || '').trim();
+      const mergedDuration = seg.end - current.start;
+      const shouldClose = endsSentence(current.text) || mergedDuration > maxGroupDuration;
+
+      if (shouldClose) {
+        groups.push(current);
+        current = { start: seg.start, end: seg.end, text: segText, sourceCount: 1 };
+      } else {
+        current.end = seg.end;
+        current.text = (current.text + ' ' + segText).trim();
+        current.sourceCount += 1;
+      }
+    }
+    groups.push(current);
+
+    return groups;
   }
 
   /**

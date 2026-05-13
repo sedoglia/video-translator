@@ -33,7 +33,13 @@
       "Bash(git filter-branch:*)",
       "Bash(find:*)",
       "Bash(timeout 300 tail:*)",
-      "Bash(netstat:*)"
+      "Bash(netstat:*)",
+      "Bash(gh pr view:*)",
+      "Bash(git fetch:*)",
+      "Bash(git merge copilot-autofix --no-ff -m \"$(cat <<''EOF''\nMerge pull request #1 from Copilot Autofix: Fix CodeQL path traversal vulnerabilities\n\nCopilot Autofix improved the path validation by implementing proper sandboxing:\n- Added OUTPUT_ROOT constant to confine all output paths\n- Modified validateOutputDir() to resolve paths relative to OUTPUT_ROOT\n- Enhanced security check to ensure paths stay within allowed root directory\n- This prevents path traversal attacks by confining outputs to a safe directory\n\nThis is a superior approach compared to my initial fix as it implements\nproper path confinement (sandboxing) rather than just detecting traversal patterns.\n\nCo-Authored-By: GitHub Copilot Autofix <noreply@github.com>\nEOF\n)\")",
+      "Bash(https://api.github.com/repos/sedoglia/video-translator/pulls/2)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nPotential fix for code scanning alert no. 16: Uncontrolled data used in path expression\n\n- Added validateOutputDir() call in VideoRemux.remux() method\n- Removed redundant directory creation code (already handled by validateOutputDir)\n- Optimized code by eliminating duplicate fs.existsSync and fs.mkdirSync calls\n- This prevents uncontrolled outputDir usage in filesystem operations\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git merge copilot-autofix-3 --no-ff -m \"$(cat <<''EOF''\nMerge pull request #3 from Copilot Autofix: Fix VideoRemux path traversal vulnerability\n\nAdded validateOutputDir() call in VideoRemux.remux() to prevent uncontrolled\ndata being used in path expressions. Also optimized by removing redundant\ndirectory creation code since validateOutputDir() already handles it.\n\nThis resolves the CodeQL alert for uncontrolled outputDir usage in\nfilesystem operations.\n\nCo-Authored-By: GitHub Copilot Autofix <noreply@github.com>\nEOF\n)\")"
     ]
   }
 }

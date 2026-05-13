@@ -31,6 +31,7 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
+    "@andresaya/edge-tts": "^1.8.0",
     "@vitalets/google-translate-api": "^9.2.1",
     "axios": "^1.6.5",
     "cors": "^2.8.5",
@@ -38,7 +39,6 @@
     "electron-squirrel-startup": "^1.0.1",
     "express": "^4.18.2",
     "fluent-ffmpeg": "^2.1.2",
-    "msedge-tts": "^2.0.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "socket.io": "^4.6.0",

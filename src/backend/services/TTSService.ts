@@ -4,7 +4,7 @@ import { execFile } from 'child_process';
 import { JobLogger } from '../utils/logger';
 import { LANGUAGES } from '../../shared/types';
 import ffmpeg from 'fluent-ffmpeg';
-import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
+import { EdgeTTS } from '@andresaya/edge-tts';
 
 interface AudioSegment {
   text: string;
@@ -890,173 +890,55 @@ export class TTSService {
   }
 
   /**
-   * Generate speech using Microsoft Edge TTS with rate control (Neural voices)
+   * Generate speech using @andresaya/edge-tts (TypeScript) with rate control
    */
   private async generateSpeechEdgeTTSWithRate(text: string, voice: string, outputPath: string, rate: string = '+0%'): Promise<void> {
-    try {
-      // Sanitize and validate text
-      const sanitizedText = text.trim();
+    const sanitizedText = text.trim();
+    if (!sanitizedText) {
+      throw new Error('Empty text provided to Edge TTS');
+    }
 
-      if (!sanitizedText || sanitizedText.length === 0) {
-        throw new Error('Empty text provided to Edge TTS');
+    this.logger.debug('Generating audio with Edge TTS', {
+      voice,
+      rate,
+      textLength: sanitizedText.length,
+      textPreview: sanitizedText.substring(0, 100)
+    });
+
+    try {
+      const tts = new EdgeTTS();
+      await tts.synthesize(sanitizedText, voice, { rate });
+
+      // toFile appends the format extension; strip any existing extension from outputPath
+      const outputPathNoExt = outputPath.replace(/\.[^/.]+$/, '');
+      const actualPath = await tts.toFile(outputPathNoExt, 'mp3');
+
+      // Rename to the expected outputPath if they differ
+      if (actualPath !== outputPath && fs.existsSync(actualPath)) {
+        fs.renameSync(actualPath, outputPath);
       }
 
-      this.logger.debug('Generating audio with Edge TTS', {
-        voice,
-        rate,
-        textLength: sanitizedText.length,
-        textPreview: sanitizedText.substring(0, 100)
-      });
-
-      const tts = new MsEdgeTTS();
-      await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-
-      // Pass rate as ProsodyOptions (second parameter to toStream)
-      const prosodyOptions = rate !== '+0%' ? { rate } : undefined;
-      const streams = tts.toStream(sanitizedText, prosodyOptions);
-      const writable = fs.createWriteStream(outputPath);
-
-      let bytesWritten = 0;
-
-      // Pipe the TTS audio stream to file
-      await new Promise<void>((resolve, reject) => {
-        streams.audioStream.on('data', (chunk: Buffer) => {
-          bytesWritten += chunk.length;
-        });
-
-        streams.audioStream.pipe(writable);
-
-        writable.on('finish', () => {
-          this.logger.debug('Edge TTS stream finished', { bytesWritten, rate });
-          resolve();
-        });
-
-        writable.on('error', (error: Error) => {
-          this.logger.error('Error writing TTS stream', { error: error.message });
-          reject(error);
-        });
-
-        streams.audioStream.on('error', (error: Error) => {
-          this.logger.error('Error reading TTS stream', { error: error.message });
-          reject(error);
-        });
-      });
-
-      // Verify file was created and has content
       if (!fs.existsSync(outputPath)) {
         throw new Error('Edge TTS output file was not created');
       }
-
       const stats = fs.statSync(outputPath);
       if (stats.size === 0) {
         throw new Error('Edge TTS created an empty file');
       }
 
-      this.logger.debug('Edge TTS synthesis complete', {
-        outputSize: stats.size,
-        rate,
-        textLength: sanitizedText.length
-      });
+      this.logger.debug('Edge TTS synthesis complete', { outputSize: stats.size, rate, textLength: sanitizedText.length });
     } catch (error: any) {
-      this.logger.error('Edge TTS generation failed', {
-        error: error.message,
-        voice,
-        rate,
-        textPreview: text.substring(0, 100)
-      });
-      throw error;
+      const errMsg = error instanceof Error ? error.message : String(error);
+      this.logger.error('Edge TTS generation failed', { error: errMsg, voice, rate, textPreview: text.substring(0, 100) });
+      throw error instanceof Error ? error : new Error(errMsg);
     }
   }
 
   /**
-   * Generate speech using Microsoft Edge TTS (Neural voices)
+   * Generate speech using @andresaya/edge-tts (TypeScript)
    */
   private async generateSpeechEdgeTTS(text: string, voice: string, outputPath: string): Promise<void> {
-    try {
-      // Sanitize and validate text
-      const sanitizedText = text.trim();
-
-      if (!sanitizedText || sanitizedText.length === 0) {
-        throw new Error('Empty text provided to Edge TTS');
-      }
-
-      this.logger.debug('Generating audio with Edge TTS', {
-        voice,
-        textLength: sanitizedText.length,
-        textPreview: sanitizedText.substring(0, 100),
-        fullText: sanitizedText // Log full text to debug
-      });
-
-      const tts = new MsEdgeTTS();
-      await tts.setMetadata(voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-
-      const streams = tts.toStream(sanitizedText);
-      const writable = fs.createWriteStream(outputPath);
-
-      let bytesWritten = 0;
-
-      // Track bytes written
-      writable.on('pipe', () => {
-        this.logger.debug('Edge TTS stream started piping');
-      });
-
-      // Pipe the TTS audio stream to file
-      await new Promise<void>((resolve, reject) => {
-        streams.audioStream.on('data', (chunk: Buffer) => {
-          bytesWritten += chunk.length;
-          this.logger.debug(`Edge TTS data chunk received: ${chunk.length} bytes (total: ${bytesWritten})`);
-        });
-
-        streams.audioStream.pipe(writable);
-
-        writable.on('finish', () => {
-          this.logger.debug('Edge TTS stream finished', { bytesWritten });
-          resolve();
-        });
-
-        writable.on('error', (error: Error) => {
-          this.logger.error('Error writing TTS stream', { error: error.message });
-          reject(error);
-        });
-
-        streams.audioStream.on('error', (error: Error) => {
-          this.logger.error('Error reading TTS stream', { error: error.message });
-          reject(error);
-        });
-
-        streams.audioStream.on('end', () => {
-          this.logger.debug('Edge TTS audio stream ended', { bytesWritten });
-        });
-      });
-
-      // Verify file was created and has content
-      if (!fs.existsSync(outputPath)) {
-        throw new Error('Edge TTS output file was not created');
-      }
-
-      const stats = fs.statSync(outputPath);
-      if (stats.size === 0) {
-        this.logger.error('Edge TTS created empty file - diagnosis', {
-          textLength: sanitizedText.length,
-          text: sanitizedText,
-          voice,
-          bytesWrittenFromStream: bytesWritten,
-          outputPath
-        });
-        throw new Error('Edge TTS created an empty file');
-      }
-
-      this.logger.debug('Edge TTS synthesis complete', {
-        outputSize: stats.size,
-        outputPath
-      });
-    } catch (error: any) {
-      this.logger.error('Edge TTS generation failed', {
-        error: error.message,
-        stack: error.stack
-      });
-      throw new Error(`Edge TTS failed: ${error.message}`);
-    }
+    await this.generateSpeechEdgeTTSWithRate(text, voice, outputPath, '+0%');
   }
 
   /**

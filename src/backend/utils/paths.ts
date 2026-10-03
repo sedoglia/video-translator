@@ -2,9 +2,10 @@ import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import type { TempPaths } from '../types';
+import { getDataDir } from './runtime';
 
 export function getTempDir(): string {
-  const tempBase = process.env.TEMP_DIR || path.join(process.cwd(), 'temp');
+  const tempBase = process.env.TEMP_DIR || path.join(getDataDir(), 'temp');
   if (!fs.existsSync(tempBase)) {
     fs.mkdirSync(tempBase, { recursive: true });
   }

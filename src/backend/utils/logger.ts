@@ -1,8 +1,9 @@
 import winston from 'winston';
 import path from 'path';
 import fs from 'fs';
+import { getDataDir } from './runtime';
 
-const logsDir = path.join(process.cwd(), 'logs');
+const logsDir = path.join(getDataDir(), 'logs');
 if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
 }

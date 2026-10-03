@@ -29,9 +29,16 @@ function createWindow() {
 function startBackendServer() {
   const serverPath = path.join(__dirname, 'backend', 'server.js');
 
+  // Installed app: bundled binaries are in the resources folder, and the
+  // backend must write models/logs/temp files to the per-user data folder
+  // (the working directory is arbitrary and the install dir may be read-only).
+  const packagedEnv = app.isPackaged
+    ? { VT_RESOURCES_DIR: process.resourcesPath, VT_DATA_DIR: app.getPath('userData') }
+    : {};
+
   backendProcess = fork(serverPath, [], {
     stdio: 'pipe',
-    env: { ...process.env, NODE_ENV: process.env.NODE_ENV || 'production' }
+    env: { ...process.env, ...packagedEnv, NODE_ENV: process.env.NODE_ENV || 'production' }
   });
 
   backendProcess.stdout?.on('data', (data) => {

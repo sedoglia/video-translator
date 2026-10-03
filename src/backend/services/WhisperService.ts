@@ -4,8 +4,15 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs';
+import axios from 'axios';
+import { getResourcesDir, getDataDir, isPackaged } from '../utils/runtime';
 
 const execFileAsync = promisify(execFile);
+
+const MODEL_BASE_URL = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
+
+/** Called while a missing model is downloaded (bytes so far, total bytes or 0 if unknown). */
+export type ModelDownloadProgress = (downloaded: number, total: number) => void;
 
 /**
  * WhisperService using whisper.cpp binary (precompiled for Windows)
@@ -17,21 +24,62 @@ export class WhisperService {
   private modelsPath: string;
 
   constructor(private logger: JobLogger) {
-    // Use tiny model by default (fastest, smallest)
-    // Clean the model name (remove any path prefix like "Xenova/")
-    const rawModelName = process.env.WHISPER_MODEL_NAME || 'tiny';
-    this.modelName = rawModelName.split('/').pop() || 'tiny';
+    // medium by default: best balance of quality and timestamp precision (the
+    // lip-sync depends on it). Clean the model name (remove any path prefix like "Xenova/")
+    const rawModelName = process.env.WHISPER_MODEL_NAME || 'medium';
+    this.modelName = rawModelName.split('/').pop() || 'medium';
 
     // Remove "whisper-" prefix if present and extract just the model size
     if (this.modelName.startsWith('whisper-')) {
       this.modelName = this.modelName.replace('whisper-', '');
     }
 
-    // Path to whisper binary
-    this.whisperBinPath = path.join(process.cwd(), 'whisper-bin', 'main.exe');
+    // Binaries ship with the app; models are downloaded to a writable folder
+    // in the installed app (the resources folder is read-only there).
+    this.whisperBinPath = path.join(getResourcesDir(), 'whisper-bin', 'main.exe');
+    this.modelsPath = isPackaged()
+      ? path.join(getDataDir(), 'models')
+      : path.join(getResourcesDir(), 'whisper-bin', 'models');
+  }
 
-    // Path to models directory
-    this.modelsPath = path.join(process.cwd(), 'whisper-bin', 'models');
+  /**
+   * Download the model if it isn't there yet (first run of the installed app).
+   * Written to a .part file and renamed at the end, so an interrupted
+   * download is never mistaken for a complete model.
+   */
+  private async ensureModel(modelPath: string, onProgress?: ModelDownloadProgress): Promise<void> {
+    if (fs.existsSync(modelPath)) return;
+
+    const url = `${MODEL_BASE_URL}/${path.basename(modelPath)}`;
+    const partPath = `${modelPath}.part`;
+    fs.mkdirSync(path.dirname(modelPath), { recursive: true });
+    this.logger.stage('TRANSCRIBING', `Downloading Whisper model ${this.modelName} from ${url}`);
+
+    const response = await axios.get(url, { responseType: 'stream', timeout: 30000, maxRedirects: 5 });
+    const total = Number(response.headers['content-length']) || 0;
+    let downloaded = 0;
+
+    await new Promise<void>((resolve, reject) => {
+      const file = fs.createWriteStream(partPath);
+      response.data.on('data', (chunk: Buffer) => {
+        downloaded += chunk.length;
+        onProgress?.(downloaded, total);
+      });
+      response.data.on('error', reject);
+      file.on('error', reject);
+      file.on('finish', resolve);
+      response.data.pipe(file);
+    }).catch((error) => {
+      fs.rmSync(partPath, { force: true });
+      throw new Error(`Whisper model download failed: ${error.message}`);
+    });
+
+    if (total > 0 && downloaded !== total) {
+      fs.rmSync(partPath, { force: true });
+      throw new Error(`Whisper model download incomplete (${downloaded} of ${total} bytes)`);
+    }
+    fs.renameSync(partPath, modelPath);
+    this.logger.stage('TRANSCRIBING', `Whisper model downloaded (${(downloaded / 1048576).toFixed(0)} MB)`);
   }
 
   /**
@@ -40,7 +88,8 @@ export class WhisperService {
   async transcribe(
     audioPath: string,
     language: string | 'auto',
-    useCuda: boolean = false
+    useCuda: boolean = false,
+    onModelDownload?: ModelDownloadProgress
   ): Promise<TranscriptionResult> {
     this.logger.stage('TRANSCRIBING', `Starting transcription with Whisper.cpp (${this.modelName} model)`);
 
@@ -53,10 +102,7 @@ export class WhisperService {
       // Model file path
       const modelPath = path.join(this.modelsPath, `ggml-${this.modelName}.bin`);
 
-      // Check if model exists
-      if (!fs.existsSync(modelPath)) {
-        throw new Error(`Whisper model not found at: ${modelPath}. Please download the model first.`);
-      }
+      await this.ensureModel(modelPath, onModelDownload);
 
       this.logger.debug('Starting transcription...', { audioPath, language, model: this.modelName, useCuda });
 

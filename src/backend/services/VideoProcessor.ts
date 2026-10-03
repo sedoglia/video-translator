@@ -143,10 +143,21 @@ export class VideoProcessor extends EventEmitter {
     this.emitProgress('TRANSCRIBING', 35, 'Transcribing audio with Whisper.cpp...');
 
     const whisperService = new WhisperService(this.logger);
+    let lastPercent = -1;
     const result = await whisperService.transcribe(
       audioPath,
       this.request.sourceLanguage,
-      this.request.useCuda
+      this.request.useCuda,
+      // First run of the installed app: the model (~1.5 GB) is downloaded once
+      (downloaded, total) => {
+        const mb = Math.round(downloaded / 1048576);
+        const percent = total > 0 ? Math.floor((downloaded / total) * 100) : -1;
+        if (percent === lastPercent && percent !== -1) return;
+        if (percent === -1 && mb % 10 !== 0) return;
+        lastPercent = percent;
+        const detail = total > 0 ? `${percent}% (${mb} / ${Math.round(total / 1048576)} MB)` : `${mb} MB`;
+        this.emitProgress('TRANSCRIBING', 35, `Downloading Whisper model (first run only): ${detail}`);
+      }
     );
 
     // Store segments for advanced lip-sync

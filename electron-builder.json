@@ -15,6 +15,11 @@
       "from": "python",
       "to": "python",
       "filter": ["**/*", "!venv/**/*"]
+    },
+    {
+      "from": "whisper-bin",
+      "to": "whisper-bin",
+      "filter": ["main.exe", "*.dll"]
     }
   ],
   "win": {

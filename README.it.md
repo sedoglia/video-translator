@@ -41,6 +41,20 @@ L'applicazione presenta un'interfaccia intuitiva con:
 
 ## Installazione
 
+### Installer Windows (Consigliato)
+
+1. Installa **FFmpeg** e aggiungilo al PATH (vedi il [passo 2](#2-installare-ffmpeg) più sotto)
+2. Scarica `Video.Audio.Translator.Setup.<versione>.exe` dall'[ultima release](https://github.com/sedoglia/video-translator/releases/latest) ed eseguilo
+3. Avvia **Video Audio Translator** dal collegamento sul Desktop o nel Menu Start
+
+L'installer include il motore Whisper.cpp con supporto CUDA. La prima volta che elabori un video, l'app scarica il modello Whisper `medium` (~1,5 GB, una sola volta) in `%APPDATA%ideo-translatormodels`; i log vengono scritti in `%APPDATA%ideo-translatorlogs`.
+
+L'installer non è firmato: Windows SmartScreen potrebbe mostrare un avviso ("Ulteriori informazioni" → "Esegui comunque").
+
+### Da Sorgente
+
+Per compilare ed eseguire l'app da sorgente, segui invece questi passi.
+
 ### 1. Installare Node.js
 Scarica e installa Node.js da [nodejs.org](https://nodejs.org/)
 

@@ -3,13 +3,13 @@ import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { JobLogger } from '../utils/logger';
+import { unpackedPath } from '../utils/runtime';
 
-const YTDLP_BIN = path.join(
-  process.cwd(),
-  'node_modules',
-  'youtube-dl-exec',
-  'bin',
-  process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp'
+// Resolved by youtube-dl-exec from its own install location, so it doesn't
+// depend on the working directory (which is arbitrary in the installed app).
+// `constants` is exported at runtime but missing from the package typings.
+const YTDLP_BIN = unpackedPath(
+  (youtubedl as unknown as { constants: { YOUTUBE_DL_PATH: string } }).constants.YOUTUBE_DL_PATH
 );
 
 interface ExecResult {

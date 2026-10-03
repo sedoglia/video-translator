@@ -8,7 +8,7 @@ import { logger } from './utils/logger';
 import { ensureDirectoryExists, getTempDir, getOutputDir } from './utils/paths';
 
 // Load environment variables
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const app = express();
 const httpServer = createServer(app);

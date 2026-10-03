@@ -35,7 +35,7 @@ The application features an intuitive interface with:
 - **GPU** (optional): NVIDIA GPU with CUDA 12.6.0 support for faster transcription
 
 ### Software Requirements
-- **Node.js**: v18 or higher
+- **Node.js**: v22.12 or higher
 - **FFmpeg**: Required for video processing
 - **Visual C++ Redistributable**: 2015-2022 (usually pre-installed on Windows)
 
@@ -432,11 +432,11 @@ OUTPUT: Translated Video (video_translated_to_{language}.mp4)
 
 ## Technologies Used
 
-- **Electron 39.2.7** - Desktop application framework
-- **React 18.2.0** - UI framework
-- **TypeScript 5.9.3** - Type-safe development
-- **Express 4.18.2** - Backend server
-- **Socket.IO 4.6.0** - Real-time communication
+- **Electron 44.5** - Desktop application framework
+- **React 19.3** - UI framework
+- **TypeScript 6.0** - Type-safe development
+- **Express 5.2** - Backend server
+- **Socket.IO 4.8** - Real-time communication
 - **Whisper.cpp 1.6.2** - Speech recognition (CUDA 12.6.0)
 - **FFmpeg** - Video/audio processing
 - **Google Translate API** - Translation service

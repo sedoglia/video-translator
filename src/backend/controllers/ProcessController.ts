@@ -91,7 +91,7 @@ export class ProcessController {
     }
   }
 
-  cancelProcess(req: Request, res: Response): void {
+  cancelProcess(req: Request<{ jobId: string }>, res: Response): void {
     const { jobId } = req.params;
 
     const processor = this.activeProcessors.get(jobId);
@@ -106,7 +106,7 @@ export class ProcessController {
     res.json({ success: true, message: 'Process cancelled' });
   }
 
-  getStatus(req: Request, res: Response): void {
+  getStatus(req: Request<{ jobId: string }>, res: Response): void {
     const { jobId } = req.params;
 
     const processor = this.activeProcessors.get(jobId);

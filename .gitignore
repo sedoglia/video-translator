@@ -49,3 +49,6 @@ whisper-bin/*.exe
 
 # Lip-sync bench data (downloads, transcripts, generated tracks)
 scripts/lipsync-bench/data/
+
+# Claude Desktop browser-pane preview config (auto-generated)
+.claude/launch.json

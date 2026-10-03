@@ -1,7 +1,11 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
 import { fork, ChildProcess } from 'child_process';
+import dotenv from 'dotenv';
 import { VIDEO_EXTENSIONS } from './shared/types';
+
+// Same .env the backend reads, so both agree on OUTPUT_DIR in development
+dotenv.config({ quiet: true });
 
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
@@ -26,6 +30,18 @@ function createWindow() {
   });
 }
 
+/**
+ * Default output folder, shared with the backend so the UI shows where videos
+ * really go: OUTPUT_DIR (.env) if set, else ./output in development and the
+ * user's Videos folder in the installed app.
+ */
+function getDefaultOutputDir(): string {
+  if (process.env.OUTPUT_DIR) return path.resolve(process.env.OUTPUT_DIR);
+  return app.isPackaged
+    ? path.join(app.getPath('videos'), 'Video Audio Translator')
+    : path.resolve('output');
+}
+
 function startBackendServer() {
   const serverPath = path.join(__dirname, 'backend', 'server.js');
 
@@ -38,7 +54,7 @@ function startBackendServer() {
 
   backendProcess = fork(serverPath, [], {
     stdio: 'pipe',
-    env: { ...process.env, ...packagedEnv, NODE_ENV: process.env.NODE_ENV || 'production' }
+    env: { ...process.env, ...packagedEnv, OUTPUT_DIR: getDefaultOutputDir(), NODE_ENV: process.env.NODE_ENV || 'production' }
   });
 
   backendProcess.stdout?.on('data', (data) => {
@@ -128,5 +144,5 @@ ipcMain.handle('get-gpu-info', async () => {
 });
 
 ipcMain.handle('get-default-output-path', async () => {
-  return 'C:\\TEMP';
+  return getDefaultOutputDir();
 });

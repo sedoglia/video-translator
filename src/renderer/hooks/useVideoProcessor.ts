@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type { ProcessStage, ProgressUpdate, ProcessResult, GPUInfo } from '../../shared/types';
 
@@ -13,6 +13,9 @@ export function useVideoProcessor() {
   const [currentJobId, setCurrentJobId] = useState<string | null>(null);
   const [result, setResult] = useState<ProcessResult | null>(null);
   const [gpuInfo, setGpuInfo] = useState<GPUInfo | null>(null);
+  // Read by the socket handlers: one connection for the app's lifetime instead
+  // of reconnecting (and missing events) every time a job starts.
+  const currentJobIdRef = useRef<string | null>(null);
 
   // Initialize socket connection
   useEffect(() => {
@@ -27,7 +30,7 @@ export function useVideoProcessor() {
     });
 
     newSocket.on('progress', (update: ProgressUpdate) => {
-      if (currentJobId && update.jobId === currentJobId) {
+      if (currentJobIdRef.current && update.jobId === currentJobIdRef.current) {
         setCurrentStage(update.stage);
         setProgress(update.percentage);
         addLog(`[${update.stage}] ${update.message}`);
@@ -35,7 +38,7 @@ export function useVideoProcessor() {
     });
 
     newSocket.on('process-complete', (processResult: ProcessResult) => {
-      if (currentJobId && processResult.jobId === currentJobId) {
+      if (currentJobIdRef.current && processResult.jobId === currentJobIdRef.current) {
         setProcessing(false);
         setResult(processResult);
 
@@ -52,13 +55,16 @@ export function useVideoProcessor() {
     return () => {
       newSocket.close();
     };
-  }, [currentJobId]);
+  }, []);
 
-  // Fetch GPU info on mount
+  // Fetch GPU info on mount. The ignore flag drops the result of a discarded
+  // mount (React StrictMode mounts twice in development), so it's logged once.
   useEffect(() => {
+    let ignore = false;
     fetch(`${BACKEND_URL}/api/gpu-info`)
       .then(res => res.json())
       .then(info => {
+        if (ignore) return;
         setGpuInfo(info);
         if (info.cudaAvailable) {
           addLog(`GPU detected: ${info.gpuName} (CUDA available)`);
@@ -67,9 +73,13 @@ export function useVideoProcessor() {
         }
       })
       .catch(err => {
+        if (ignore) return;
         console.error('Failed to get GPU info:', err);
         addLog('Warning: Could not detect GPU status');
       });
+    return () => {
+      ignore = true;
+    };
   }, []);
 
   const addLog = useCallback((message: string) => {
@@ -110,6 +120,7 @@ export function useVideoProcessor() {
         throw new Error(data.error || 'Failed to start processing');
       }
 
+      currentJobIdRef.current = data.jobId;
       setCurrentJobId(data.jobId);
       addLog(`Job created: ${data.jobId}`);
     } catch (error: any) {

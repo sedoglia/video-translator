@@ -13,9 +13,9 @@ export function getTempDir(): string {
 }
 
 export function getOutputDir(): string {
-  // Use C:\TEMP as default output directory
-  const defaultOutputPath = 'C:\\TEMP';
-  const outputBase = process.env.OUTPUT_DIR || defaultOutputPath;
+  // OUTPUT_DIR is set by the Electron main process (or .env when the backend
+  // runs standalone); the UI proposes the same folder
+  const outputBase = path.resolve(process.env.OUTPUT_DIR || path.join(getDataDir(), 'output'));
   if (!fs.existsSync(outputBase)) {
     fs.mkdirSync(outputBase, { recursive: true });
   }

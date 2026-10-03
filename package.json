@@ -10,7 +10,7 @@
     "build": "webpack --config webpack.config.js",
     "electron": "electron .",
     "electron:dev": "wait-on dist/main.js && electron .",
-    "electron:build": "npm run build && electron-builder",
+    "electron:build": "npm run build -- --mode production && electron-builder",
     "backend:dev": "tsx watch src/backend/server.ts",
     "setup": "node scripts/setup-whisper.js",
     "setup:tiny": "node scripts/setup-whisper.js tiny",

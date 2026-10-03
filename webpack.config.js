@@ -93,7 +93,11 @@ const backendConfig = {
     'uuid': 'commonjs uuid',
     'winston': 'commonjs winston',
     'say': 'commonjs say',
-    '@vitalets/google-translate-api': 'commonjs @vitalets/google-translate-api'
+    '@vitalets/google-translate-api': 'commonjs @vitalets/google-translate-api',
+    // Optional native speed-ups of ws (bundled via edge-tts): ws requires them
+    // inside try/catch and works without them
+    'bufferutil': 'commonjs bufferutil',
+    'utf-8-validate': 'commonjs utf-8-validate'
   },
   node: {
     __dirname: false,

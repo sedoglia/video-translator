@@ -46,3 +46,6 @@ whisper-bin/*.exe
 *.AppImage
 *.deb
 *.rpm
+
+# Lip-sync bench data (downloads, transcripts, generated tracks)
+scripts/lipsync-bench/data/

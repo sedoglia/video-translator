@@ -19,6 +19,9 @@
     "setup:medium": "node scripts/setup-whisper.js medium",
     "setup:large": "node scripts/setup-whisper.js large",
     "test": "jest",
+    "bench:prep": "tsx scripts/lipsync-bench/prep.ts",
+    "bench:run": "tsx scripts/lipsync-bench/run.ts",
+    "bench:measure": "tsx scripts/lipsync-bench/measure.ts",
     "postinstall": "electron-builder install-app-deps"
   },
   "keywords": [

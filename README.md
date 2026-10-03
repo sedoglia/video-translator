@@ -200,6 +200,8 @@ This script will:
 ✅ SUCCESS - Every phrase starts within 0.5s of the original
 ```
 
+To compare changes to the lip-sync alignment with objective metrics on a fixed video, use the lip-sync bench: see [scripts/lipsync-bench/README.md](scripts/lipsync-bench/README.md).
+
 ## Supported Languages
 
 The application supports all languages available in Google Translate, including:

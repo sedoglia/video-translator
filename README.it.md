@@ -35,7 +35,7 @@ L'applicazione presenta un'interfaccia intuitiva con:
 - **GPU** (opzionale): GPU NVIDIA con supporto CUDA 12.6.0 per trascrizioni più veloci
 
 ### Requisiti Software
-- **Node.js**: v22.12 o superiore
+- **Node.js**: v22.12 o superiore (per compilare ed eseguire da sorgente)
 - **FFmpeg**: Richiesto per l'elaborazione video
 - **Visual C++ Redistributable**: 2015-2022 (solitamente pre-installato su Windows)
 
@@ -54,7 +54,7 @@ ffmpeg -version
 
 ### 3. Clonare il Repository
 ```bash
-git clone https://github.com/yourusername/video-translator.git
+git clone https://github.com/sedoglia/video-translator.git
 cd video-translator
 ```
 
@@ -118,31 +118,35 @@ Per verificare il supporto GPU:
 
 ### Avviare l'Applicazione
 
-#### Modalità Sviluppo
+#### Avviare l'App
 ```bash
-npm start
+npm start                # Compila una volta e avvia l'app
 ```
 
-#### Build per Produzione
+#### Modalità Sviluppo
 ```bash
-npm run build
-npm run electron
+npm run dev              # Ricompila a ogni modifica e riavvia
+```
+
+#### Creare l'Installer Windows
+```bash
+npm run electron:build   # Crea l'installer NSIS in out/
 ```
 
 ### Elaborare un Video
 
 1. **Seleziona Sorgente Video**
    - Scegli "YouTube URL" e incolla un link YouTube, OPPURE
-   - Scegli "File Locale" e sfoglia per selezionare un file video
+   - Scegli "Local File" e sfoglia ("Browse...") per selezionare un file video
 
 2. **Configura Impostazioni**
-   - **Lingua Sorgente**: Seleziona la lingua audio originale o usa "Rilevamento Automatico"
+   - **Lingua Sorgente**: Seleziona la lingua audio originale o usa "Auto Detect"
    - **Lingua Destinazione**: Seleziona la lingua in cui tradurre
    - **Usa GPU CUDA**: Abilita per elaborazione più veloce (se hai una GPU NVIDIA)
    - **Directory Output**: Scegli dove salvare il video tradotto
 
 3. **Avvia Elaborazione**
-   - Clicca "Avvia Elaborazione"
+   - Clicca "Process Video"
    - Monitora il progresso in tempo reale
    - Il processo include:
      - Download video (se YouTube)
@@ -228,17 +232,26 @@ video-translator/
 │   ├── backend/             # Servizi backend
 │   │   ├── server.ts        # Server Express + Socket.IO
 │   │   ├── services/        # Servizi core
+│   │   │   ├── YoutubeDownloader.ts   # Download YouTube (yt-dlp)
+│   │   │   ├── AudioExtractor.ts      # Estrazione audio
 │   │   │   ├── WhisperService.ts      # Riconoscimento vocale
 │   │   │   ├── TranslationService.ts  # Traduzione
-│   │   │   ├── TTSService.ts          # Text-to-speech
+│   │   │   ├── TTSService.ts          # Text-to-speech + lip-sync
 │   │   │   ├── VideoRemux.ts          # Elaborazione video
 │   │   │   └── VideoProcessor.ts      # Orchestratore principale
+│   │   ├── utils/           # Funzioni di supporto
+│   │   │   ├── speech-groups.ts       # Raggruppamento in frasi dei segmenti Whisper
+│   │   │   ├── path-validator.ts      # Controlli di sicurezza sui percorsi
+│   │   │   └── ...                    # Logger, percorsi, rilevamento GPU
 │   │   └── controllers/     # Controller API
 │   ├── renderer/            # Frontend React
 │   │   ├── App.tsx          # Componente principale app
 │   │   ├── components/      # Componenti UI
 │   │   └── hooks/           # Hook React
 │   └── shared/              # Tipi condivisi
+├── scripts/
+│   ├── setup-whisper.js     # Setup binari Whisper.cpp + modello
+│   └── lipsync-bench/       # Banco di prova per misurare il lip-sync
 ├── whisper-bin/             # Binari Whisper.cpp
 │   └── models/              # Modelli Whisper
 ├── temp/                    # File temporanei elaborazione

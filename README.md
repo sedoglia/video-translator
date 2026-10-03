@@ -35,7 +35,7 @@ The application features an intuitive interface with:
 - **GPU** (optional): NVIDIA GPU with CUDA 12.6.0 support for faster transcription
 
 ### Software Requirements
-- **Node.js**: v22.12 or higher
+- **Node.js**: v22.12 or higher (to build and run from source)
 - **FFmpeg**: Required for video processing
 - **Visual C++ Redistributable**: 2015-2022 (usually pre-installed on Windows)
 
@@ -54,7 +54,7 @@ ffmpeg -version
 
 ### 3. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/video-translator.git
+git clone https://github.com/sedoglia/video-translator.git
 cd video-translator
 ```
 
@@ -118,15 +118,19 @@ To verify GPU support:
 
 ### Starting the Application
 
-#### Development Mode
+#### Run the App
 ```bash
-npm start
+npm start                # Builds once and starts the app
 ```
 
-#### Build for Production
+#### Development Mode
 ```bash
-npm run build
-npm run electron
+npm run dev              # Rebuilds on file changes and restarts
+```
+
+#### Build the Windows Installer
+```bash
+npm run electron:build   # Creates the NSIS installer in out/
 ```
 
 ### Processing a Video
@@ -142,7 +146,7 @@ npm run electron
    - **Output Directory**: Choose where to save the translated video
 
 3. **Start Processing**
-   - Click "Start Processing"
+   - Click "Process Video"
    - Monitor progress in real-time
    - The process includes:
      - Video download (if YouTube)
@@ -228,17 +232,26 @@ video-translator/
 │   ├── backend/             # Backend services
 │   │   ├── server.ts        # Express + Socket.IO server
 │   │   ├── services/        # Core services
+│   │   │   ├── YoutubeDownloader.ts   # YouTube download (yt-dlp)
+│   │   │   ├── AudioExtractor.ts      # Audio extraction
 │   │   │   ├── WhisperService.ts      # Speech recognition
 │   │   │   ├── TranslationService.ts  # Translation
-│   │   │   ├── TTSService.ts          # Text-to-speech
+│   │   │   ├── TTSService.ts          # Text-to-speech + lip-sync
 │   │   │   ├── VideoRemux.ts          # Video processing
 │   │   │   └── VideoProcessor.ts      # Main orchestrator
+│   │   ├── utils/           # Helpers
+│   │   │   ├── speech-groups.ts       # Sentence grouping of Whisper segments
+│   │   │   ├── path-validator.ts      # Path security checks
+│   │   │   └── ...                    # Logger, paths, GPU detection
 │   │   └── controllers/     # API controllers
 │   ├── renderer/            # React frontend
 │   │   ├── App.tsx          # Main app component
 │   │   ├── components/      # UI components
 │   │   └── hooks/           # React hooks
 │   └── shared/              # Shared types
+├── scripts/
+│   ├── setup-whisper.js     # Whisper.cpp binaries + model setup
+│   └── lipsync-bench/       # Lip-sync measurement bench
 ├── whisper-bin/             # Whisper.cpp binaries
 │   └── models/              # Whisper models
 ├── temp/                    # Temporary processing files

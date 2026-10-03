@@ -23,6 +23,71 @@ export class TranslationService {
     return translated;
   }
 
+  /**
+   * Translate a list of segments, returning exactly one translation per input.
+   * Segments are sent in newline-joined batches (Google Translate keeps line
+   * breaks) so a 10-minute video needs a handful of requests instead of one
+   * per sentence. If a batch comes back with a different number of lines, its
+   * segments are retranslated one by one so the 1:1 mapping is never lost —
+   * the timing of the dubbed audio depends on it.
+   */
+  async translateSegments(segments: string[], sourceLanguage: string, targetLanguage: string): Promise<string[]> {
+    this.logger.stage('TRANSLATING', `Translating ${segments.length} segments from ${sourceLanguage} to ${targetLanguage}`);
+
+    if (sourceLanguage === targetLanguage) {
+      return [...segments];
+    }
+
+    const maxBatchChars = 4500;
+    const batches: number[][] = [];
+    let batch: number[] = [];
+    let batchChars = 0;
+    segments.forEach((segment, i) => {
+      const len = segment.length + 1;
+      if (batch.length > 0 && batchChars + len > maxBatchChars) {
+        batches.push(batch);
+        batch = [];
+        batchChars = 0;
+      }
+      batch.push(i);
+      batchChars += len;
+    });
+    if (batch.length > 0) batches.push(batch);
+
+    // Newlines inside a segment would break the line-count check
+    const clean = segments.map(s => s.replace(/\s*\n\s*/g, ' ').trim());
+    const result: string[] = new Array(segments.length).fill('');
+
+    for (let b = 0; b < batches.length; b++) {
+      if (b > 0) await new Promise(resolve => setTimeout(resolve, 1000));
+      const indices = batches[b];
+      const translated = await this.translateWithGoogle(
+        indices.map(i => clean[i]).join('\n'),
+        sourceLanguage,
+        targetLanguage
+      );
+      const lines = translated.split('\n').map(l => l.trim());
+
+      if (lines.length === indices.length) {
+        indices.forEach((idx, k) => { result[idx] = lines[k]; });
+        continue;
+      }
+
+      this.logger.warn('Batch translation changed the line count, translating segments individually', {
+        batch: b,
+        expected: indices.length,
+        received: lines.length
+      });
+      for (const idx of indices) {
+        await new Promise(resolve => setTimeout(resolve, 300));
+        result[idx] = (await this.translateWithGoogle(clean[idx], sourceLanguage, targetLanguage)).replace(/\s*\n\s*/g, ' ').trim();
+      }
+    }
+
+    this.logger.stage('TRANSLATING', `Segment translation complete (${batches.length} requests)`);
+    return result;
+  }
+
   private async translateWithGoogle(
     text: string,
     sourceLanguage: string,

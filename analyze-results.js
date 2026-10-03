@@ -29,106 +29,85 @@ console.log('Latest log:', latestLog.name);
 console.log('Modified:', latestLog.mtime.toLocaleString());
 console.log('');
 
-const content = fs.readFileSync(latestLog.path, 'utf8');
-const lines = content.split('\n');
+const allLines = fs.readFileSync(latestLog.path, 'utf8').split('\n');
 
-// Extract key metrics
-let calibrationRate = null;
-let calibrationInfo = null;
-let accuracy = null;
-let originalDuration = null;
-let finalDuration = null;
-let difference = null;
-let strategy = null;
-let segmentCount = null;
-
-for (const line of lines) {
-  try {
-    if (line.includes('Adaptive TTS rate calibrated')) {
-      const match = line.match(/"calculatedRate":"([^"]+)"/);
-      if (match) calibrationRate = match[1];
-
-      const samplesMatch = line.match(/"calibrationSamples":(\d+)/);
-      const avgTargetMatch = line.match(/"avgTargetDuration":"([^"]+)"/);
-      const avgActualMatch = line.match(/"avgActualDuration":"([^"]+)"/);
-      const ratioMatch = line.match(/"durationRatio":"([^"]+)"/);
-
-      // Store calibration info (will be overwritten by latest)
-      if (samplesMatch) {
-        calibrationInfo = {
-          samples: samplesMatch[1],
-          avgTarget: avgTargetMatch ? avgTargetMatch[1] : 'N/A',
-          avgActual: avgActualMatch ? avgActualMatch[1] : 'N/A',
-          ratio: ratioMatch ? ratioMatch[1] : 'N/A',
-          rate: calibrationRate
-        };
-      }
-    }
-
-    if (line.includes('Ultra-precise timestamp-based synthesis complete')) {
-      const accMatch = line.match(/"accuracy":"([^"]+)"/);
-      if (accMatch) accuracy = accMatch[1];
-
-      const origMatch = line.match(/"originalDuration":"([^"]+)"/);
-      if (origMatch) originalDuration = origMatch[1];
-
-      const finalMatch = line.match(/"finalDuration":"([^"]+)"/);
-      if (finalMatch) finalDuration = finalMatch[1];
-
-      const diffMatch = line.match(/"difference":"([^"]+)"/);
-      if (diffMatch) difference = diffMatch[1];
-
-      const segMatch = line.match(/"segments":(\d+)/);
-      if (segMatch) segmentCount = segMatch[1];
-    }
-
-    if (line.includes('Segment alignment complete')) {
-      const stratMatch = line.match(/"strategy":"([^"]+)"/);
-      if (stratMatch) strategy = stratMatch[1];
-    }
-  } catch (e) {
-    // Skip malformed lines
-  }
+// The log accumulates every job: analyze only the most recent one that ran TTS
+const ttsLine = [...allLines].reverse().find(l => l.includes('Generating TTS for language'));
+const jobMatch = ttsLine && ttsLine.match(/\[Job: ([^\]]+)\]/);
+if (!jobMatch) {
+  console.log('No TTS job found in the latest log.');
+  process.exit(1);
 }
-
-// Display calibration info (only the latest one)
-if (calibrationInfo) {
-  console.log('📊 Calibration Phase:');
-  console.log('  Samples:', calibrationInfo.samples);
-  console.log('  Avg Target:', calibrationInfo.avgTarget);
-  console.log('  Avg Actual:', calibrationInfo.avgActual);
-  console.log('  Duration Ratio:', calibrationInfo.ratio);
-  console.log('  Calculated Rate:', calibrationInfo.rate);
-  console.log('');
-}
-
-console.log('📈 Results:');
-console.log('  Strategy:', strategy || 'N/A');
-console.log('  Segments:', segmentCount || 'N/A');
-console.log('  Calibration Rate:', calibrationRate || 'N/A');
+const jobId = jobMatch[1];
+const lines = allLines.filter(l => l.includes(`[Job: ${jobId}]`));
+console.log('Job:', jobId);
 console.log('');
 
-console.log('⏱️  Duration:');
-console.log('  Original:', originalDuration || 'N/A');
-console.log('  Final:', finalDuration || 'N/A');
-console.log('  Difference:', difference || 'N/A');
+const fallback = lines.find(l => l.includes('Timestamp-anchored synthesis failed'));
+if (fallback) {
+  console.log('❌ FAILED - Timestamp-anchored synthesis failed and fell back to intelligent segmentation');
+  console.log('   ' + fallback.slice(fallback.indexOf('{')).slice(0, 500));
+  process.exit(1);
+}
+
+// Parse the JSON payload of the last log line containing `marker`
+function lastPayload(marker) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes(marker)) continue;
+    const json = lines[i].slice(lines[i].indexOf('{'));
+    try {
+      return JSON.parse(json);
+    } catch (e) {
+      return null;
+    }
+  }
+  return null;
+}
+
+const translation = lastPayload('Translated phrase by phrase');
+const pauses = lastPayload('Snapped phrase boundaries to source pauses');
+const synthesis = lastPayload('Timestamp-anchored synthesis complete');
+
+if (!synthesis) {
+  console.log('No timestamp-anchored synthesis found in the latest log.');
+  console.log('(The video may have been processed without Whisper timestamps.)');
+  process.exit(1);
+}
+
+console.log('🌍 Translation:');
+console.log('  Whisper segments:', translation ? translation.whisperSegments : 'N/A');
+console.log('  Phrases translated:', translation ? translation.phrases : 'N/A');
 console.log('');
 
-console.log('🎯 Accuracy:', accuracy ? accuracy + '%' : 'N/A');
+console.log('⏸️  Source pauses:');
+console.log('  Silence threshold:', pauses ? pauses.silenceThreshold : 'N/A');
+console.log('  Pauses detected:', pauses ? pauses.pausesDetected : 'N/A');
+console.log('  Boundaries snapped:', pauses ? pauses.boundariesSnapped : 'N/A');
+console.log('');
 
-if (accuracy) {
-  const acc = parseFloat(accuracy);
-  console.log('');
-  if (acc >= 95) {
-    console.log('✅ SUCCESS - Accuracy >= 95%');
-    console.log('   Adaptive TTS rate control is working perfectly!');
-  } else if (acc >= 90) {
-    console.log('⚠️  CLOSE - Accuracy >= 90% but < 95%');
-    console.log('   May need minor adjustments to calibration or rate limits');
-  } else {
-    console.log('❌ NEEDS IMPROVEMENT - Accuracy < 90%');
-    console.log('   Further investigation required');
-  }
+console.log('🗣️  Synthesis:');
+console.log('  Phrases placed:', synthesis.segments);
+console.log('  Re-synthesized faster:', synthesis.resynthesizedFaster);
+console.log('  Time-stretched:', synthesis.stretched, `(tempo ${synthesis.tempoRange})`);
+console.log('');
+
+console.log('⏱️  Timing:');
+console.log('  Max phrase delay:', synthesis.maxLateness);
+console.log('  Avg phrase delay:', synthesis.avgLateness);
+console.log('  Overrun at end:', synthesis.overrunAtEnd);
+
+// A phrase starting late is what the viewer notices: judge on the worst one
+const maxLateness = parseFloat(synthesis.maxLateness);
+const overrun = parseFloat(synthesis.overrunAtEnd);
+console.log('');
+if (maxLateness <= 0.5 && overrun === 0) {
+  console.log('✅ SUCCESS - Every phrase starts within 0.5s of the original');
+} else if (maxLateness <= 1.5) {
+  console.log('⚠️  CLOSE - Some phrases start up to 1.5s late');
+  console.log('   The translation is much longer than the original in places');
+} else {
+  console.log('❌ NEEDS IMPROVEMENT - Some phrases start more than 1.5s late');
+  console.log('   Check the per-segment "placed" debug lines for the worst offenders');
 }
 
 console.log('\n=== End of Analysis ===');

@@ -11,7 +11,7 @@ A desktop application for translating video audio using AI-powered speech recogn
 - 🌍 **Automatic Translation** - Translate audio to multiple languages using Google Translate
 - 🗣️ **Neural Text-to-Speech** - Natural-sounding voice synthesis using Microsoft Edge TTS
 - ⚡ **GPU Acceleration** - CUDA support for faster transcription (NVIDIA GPUs)
-- 🎯 **ULTRA-PRECISE Lip-Sync** - 95%+ accuracy with phrase-level translation, cross-fade, and dynamic padding
+- 🎯 **Timestamp-Anchored Lip-Sync** - Each phrase is translated on its own and starts when the speaker says it, with the speaker's pauses preserved
 - 🎬 **Video Processing** - Automatic video/audio synchronization maintaining original quality
 
 ## User Interface
@@ -166,43 +166,39 @@ node analyze-results.js
 
 This script will:
 - Find the most recent log file automatically
-- Extract calibration metrics (samples, duration ratio, calculated rate)
-- Display accuracy percentage and lip-sync strategy used
-- Show duration metrics (original vs final duration, difference)
-- Provide a clear success/failure indicator based on accuracy thresholds:
-  - ✅ **SUCCESS**: Accuracy ≥ 95%
-  - ⚠️ **CLOSE**: Accuracy ≥ 90% but < 95%
-  - ❌ **NEEDS IMPROVEMENT**: Accuracy < 90%
+- Show how many phrases were translated and how many boundaries were snapped to real pauses
+- Show how phrases were fitted (re-synthesized faster, time-stretched, tempo range)
+- Report the worst and average phrase delay against the original speech
+- Provide a clear success/failure indicator based on the worst phrase delay:
+  - ✅ **SUCCESS**: every phrase starts within 0.5s of the original
+  - ⚠️ **CLOSE**: some phrases start up to 1.5s late
+  - ❌ **NEEDS IMPROVEMENT**: some phrases start more than 1.5s late
 
 **Example output:**
 ```
 === Analyzing Latest Test Results ===
 
-📊 Calibration Phase:
-  Samples: 10
-  Avg Target: 6.16s
-  Avg Actual: 3.07s
-  Duration Ratio: 0.499
-  Calculated Rate: -50%
+🌍 Translation:
+  Whisper segments: 125
+  Phrases translated: 75
 
-📈 Results:
-  Strategy: 1:1 perfect match
-  Segments: 88
-  Calibration Rate: -50%
+⏸️  Source pauses:
+  Silence threshold: -34dB
+  Pauses detected: 66
+  Boundaries snapped: 39
 
-⏱️  Duration:
-  Original: 441.72s
-  Final: 454.02s
-  Difference: 12.30s
+🗣️  Synthesis:
+  Phrases placed: 75
+  Re-synthesized faster: 41
+  Time-stretched: 14 (tempo 0.90-1.08)
 
-🎯 Accuracy: 97.22%
+⏱️  Timing:
+  Max phrase delay: 0.08s
+  Avg phrase delay: 0.002s
+  Overrun at end: 0.00s
 
-✅ SUCCESS - Accuracy >= 95%
+✅ SUCCESS - Every phrase starts within 0.5s of the original
 ```
-
-**Adaptive Rate Control Strategies:**
-- **GLOBAL rate**: Used when variance is low (stdDev < 0.3) - applies single rate to entire video
-- **PER-SEGMENT rate**: Used when variance is high (stdDev ≥ 0.3) - calculates unique rate for each segment based on calibration
 
 ## Supported Languages
 
@@ -278,7 +274,7 @@ INPUT: Video File or YouTube URL
 │ 3. SPEECH RECOGNITION (Whisper.cpp + CUDA)                          │
 │    • Loads GGML model (tiny/base/small/medium/large)                │
 │    • GPU acceleration via CUDA 12.6.0 (if available)                │
-│    • Extracts text with word-level timestamps                       │
+│    • Extracts text with phrase-level timestamps                     │
 │    • Auto-detects source language                                   │
 │    Output: Transcribed text in original language                    │
 └─────────────────────────────────────────────────────────────────────┘
@@ -286,49 +282,39 @@ INPUT: Video File or YouTube URL
    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ 4. TRANSLATION (Google Translate API)                               │
-│    • Single API call for entire text                                │
-│    • Preserves text structure                                       │
+│    • Groups Whisper segments into sentences (split at pauses)       │
+│    • Translates sentence by sentence, batched in a few requests     │
+│    • Each translated sentence keeps its original timestamps         │
 │    • Automatic retry with exponential backoff                       │
-│    Output: Translated text in target language                       │
+│    Output: Translated sentences with their start/end times          │
 └─────────────────────────────────────────────────────────────────────┘
    │
    ▼
 ┌────────────────────────────────────────────────────────────────────┐
 │ 5. TEXT-TO-SPEECH SYNTHESIS (Microsoft Edge TTS)                   │
 │    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ a) Word-Level Timestamp Alignment                           │ │
-│    │    • Uses Whisper word/phrase timestamps                    │ │
-│    │    • Intelligent text segmentation on sentence boundaries   │ │
-│    │    • Preserves natural speech rhythm                        │ │
+│    │ a) Snap to Real Pauses                                      │ │
+│    │    • Whisper.cpp segments are contiguous, so pauses are     │ │
+│    │      detected in the original audio (loudness-adaptive)     │ │
+│    │    • Phrase boundaries move onto the speaker's pauses       │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ b) Adaptive TTS Rate Control                                │ │
-│    │    • Calibration phase: 15 segments or 20% of video         │ │
-│    │    • Variance detection (stdDev threshold: 0.3)             │ │
-│    │    • GLOBAL rate: Single rate for consistent speech         │ │
-│    │    • PER-SEGMENT rate: Individual rates for varied speech   │ │
-│    │    • Edge TTS rate range: -100% to +100% (max quality)      │ │
-│    │    • Weighted prediction based on calibration samples       │ │
+│    │ b) Neural Voice Synthesis                                   │ │
+│    │    • One Edge TTS call per sentence, 4 in parallel          │ │
+│    │    • Leading/trailing TTS silence trimmed                   │ │
+│    │    • Too-long sentences re-synthesized with a faster Edge   │ │
+│    │      TTS rate (up to +40%, natural prosody)                 │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ c) Neural Voice Synthesis                                   │ │
-│    │    • Cloud-based neural TTS per segment                     │ │
-│    │    • Language-appropriate voice selection                   │ │
-│    │    • 24kHz high-quality output                              │ │
-│    │    • Rate-controlled synthesis for duration matching        │ │
+│    │ c) Timestamp-Anchored Placement                             │ │
+│    │    • Each sentence starts at its original absolute time     │ │
+│    │    • A sentence may use the pause after it before being     │ │
+│    │      sped up; residual fit via atempo (0.90x-1.15x)         │ │
+│    │    • A late sentence only delays what follows until the     │ │
+│    │      next pause — errors never accumulate                   │ │
+│    │    • Sample-exact concatenation, padded to video length     │ │
 │    └─────────────────────────────────────────────────────────────┘ │
-│    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ d) ULTRA-PRECISE Silence Insertion & Lip-Sync               │ │
-│    │    • Inserts exact silence before/after each segment        │ │
-│    │    • Time-stretch each segment to match Whisper timestamps  │ │
-│    │    • 10ms triangular cross-fade between segments            │ │
-│    │    • Dynamic padding (2-8ms) based on speech rate           │ │
-│    │    • Preserves original pauses between words (±20ms)        │ │
-│    │    • Ultra-precise threshold: 1ms accuracy                  │ │
-│    │    • Final micro-adjustment for perfect sync (±1%)          │ │
-│    │    • Accuracy: 95%+ synchronization                         │ │
-│    └─────────────────────────────────────────────────────────────┘ │
-│    Output: Ultra-synchronized audio in target language             │
+│    Output: Dubbed audio aligned to the original speech             │
 └────────────────────────────────────────────────────────────────────┘
    │
    ▼
@@ -356,33 +342,23 @@ OUTPUT: Translated Video (video_translated_to_{language}.mp4)
 
 3. **Speech Recognition**
    - Processes audio with Whisper.cpp (medium model)
-   - Extracts text with timestamps
+   - Extracts text with phrase timestamps
    - Auto-detects language if not specified
 
 4. **Translation**
-   - Translates extracted text using Google Translate API
-   - Single API call to avoid rate limiting
+   - Groups Whisper segments into sentences, splitting at pauses and after 12s
+   - Translates each sentence with Google Translate, batched (one request per ~4500 characters)
+   - Every translated sentence keeps the timestamps of the speech it replaces, so the dub says the right thing at the right time
    - Automatic retry with exponential backoff
 
-5. **Text-to-Speech with Adaptive Rate Control & ULTRA-PRECISE Lip-Sync**
-   - **Adaptive TTS Rate Control** (NEW):
-     - Calibration phase analyzing first 15 segments (20% of video)
-     - Dual-strategy system based on speech variance:
-       - **GLOBAL rate**: Single rate adjustment for consistent speech patterns (stdDev < 0.3)
-       - **PER-SEGMENT rate**: Individual rate per segment for varied speech (stdDev ≥ 0.3)
-     - Intelligent duration prediction using weighted calibration samples
-     - Edge TTS rate control: -100% to +100% for natural-sounding adjustment
-   - Generates speech from translated text using Microsoft Edge TTS neural voices
-   - Phrase-level translation preserving context and meaning
+5. **Text-to-Speech with Timestamp-Anchored Lip-Sync**
+   - Detects the speaker's real pauses in the original audio (threshold adapts to loudness, so background music doesn't hide them) and moves sentence boundaries onto them
+   - Synthesizes each sentence with Microsoft Edge TTS neural voices (4 requests in parallel), trimming the silence Edge TTS adds around speech
+   - Sentences longer than their slot are re-synthesized with a faster Edge TTS rate (up to +40%), which sounds far more natural than stretching the audio
+   - Places every sentence at its original absolute start time; a sentence may extend into the pause after it before being sped up, and any residual mismatch is fitted with atempo within 0.90x-1.15x
+   - A sentence that still runs long only delays what follows until the next pause absorbs it, so timing errors never accumulate over the video
+   - Sample-exact concatenation (no crossfades that would shorten the track), padded to the exact video length
    - Proper UTF-8 encoding preserving accented characters (à,è,ì,ò,ù,é,á)
-   - Word-level timestamp alignment using Whisper's precise timings
-   - Automatic silence insertion to preserve original pauses (±20ms accuracy)
-   - 10ms triangular cross-fade between segments for seamless transitions
-   - Dynamic padding (2-8ms) adjusted based on speech rate analysis
-   - Individual segment time-stretching to match exact timestamp durations (1ms precision)
-   - Final micro-adjustment for perfect synchronization (±1% tolerance)
-   - Result: 95%+ accuracy lip-sync synchronization
-   - High-quality 24kHz output
 
 6. **Video Remuxing**
    - Combines original video with translated audio

@@ -11,7 +11,7 @@ Un'applicazione desktop per tradurre l'audio dei video utilizzando riconosciment
 - 🌍 **Traduzione Automatica** - Traduci l'audio in più lingue usando Google Translate
 - 🗣️ **Sintesi Vocale Neurale** - Voce naturale con Microsoft Edge TTS
 - ⚡ **Accelerazione GPU** - Supporto CUDA per trascrizioni più veloci (GPU NVIDIA)
-- 🎯 **Lip-Sync ULTRA-PRECISO** - Precisione 95%+ con controllo adattivo velocità TTS, cross-fade e padding dinamico
+- 🎯 **Lip-Sync Ancorato ai Timestamp** - Ogni frase viene tradotta singolarmente e parte quando l'oratore la pronuncia, rispettando le sue pause
 - 🎬 **Elaborazione Video** - Sincronizzazione automatica audio/video mantenendo qualità originale
 
 ## Interfaccia Utente
@@ -158,7 +158,7 @@ npm run electron
 
 ### Analisi dei Risultati
 
-Dopo aver elaborato un video, puoi analizzare l'accuratezza e le metriche di prestazione usando lo script di analisi incluso:
+Dopo aver elaborato un video, puoi analizzare la sincronizzazione usando lo script di analisi incluso:
 
 ```bash
 node analyze-results.js
@@ -166,43 +166,39 @@ node analyze-results.js
 
 Questo script:
 - Trova automaticamente il file di log più recente
-- Estrae le metriche di calibrazione (campioni, rapporto durata, rate calcolato)
-- Mostra la percentuale di accuratezza e la strategia lip-sync utilizzata
-- Mostra le metriche di durata (durata originale vs finale, differenza)
-- Fornisce un chiaro indicatore successo/fallimento basato sulle soglie di accuratezza:
-  - ✅ **SUCCESSO**: Accuratezza ≥ 95%
-  - ⚠️ **VICINO**: Accuratezza ≥ 90% ma < 95%
-  - ❌ **DA MIGLIORARE**: Accuratezza < 90%
+- Mostra quante frasi sono state tradotte e quanti confini sono stati spostati sulle pause reali
+- Mostra come sono state adattate le frasi (risintetizzate più veloci, time-stretch, intervallo di tempo)
+- Riporta il ritardo massimo e medio delle frasi rispetto al parlato originale
+- Fornisce un chiaro indicatore successo/fallimento basato sul ritardo massimo:
+  - ✅ **SUCCESSO**: ogni frase parte entro 0,5 s dall'originale
+  - ⚠️ **VICINO**: alcune frasi partono fino a 1,5 s in ritardo
+  - ❌ **DA MIGLIORARE**: alcune frasi partono con più di 1,5 s di ritardo
 
-**Esempio output:**
+**Esempio output** (lo script stampa in inglese):
 ```
-=== Analisi Ultimi Risultati Test ===
+=== Analyzing Latest Test Results ===
 
-📊 Fase Calibrazione:
-  Campioni: 10
-  Target Medio: 6.16s
-  Attuale Medio: 3.07s
-  Rapporto Durata: 0.499
-  Rate Calcolato: -50%
+🌍 Translation:
+  Whisper segments: 125
+  Phrases translated: 75
 
-📈 Risultati:
-  Strategia: 1:1 perfect match
-  Segmenti: 88
-  Rate Calibrazione: -50%
+⏸️  Source pauses:
+  Silence threshold: -34dB
+  Pauses detected: 66
+  Boundaries snapped: 39
 
-⏱️  Durata:
-  Originale: 441.72s
-  Finale: 454.02s
-  Differenza: 12.30s
+🗣️  Synthesis:
+  Phrases placed: 75
+  Re-synthesized faster: 41
+  Time-stretched: 14 (tempo 0.90-1.08)
 
-🎯 Accuratezza: 97.22%
+⏱️  Timing:
+  Max phrase delay: 0.08s
+  Avg phrase delay: 0.002s
+  Overrun at end: 0.00s
 
-✅ SUCCESSO - Accuratezza >= 95%
+✅ SUCCESS - Every phrase starts within 0.5s of the original
 ```
-
-**Strategie Controllo Rate Adattivo:**
-- **Rate GLOBALE**: Usato quando la varianza è bassa (stdDev < 0.3) - applica un singolo rate all'intero video
-- **Rate PER-SEGMENTO**: Usato quando la varianza è alta (stdDev ≥ 0.3) - calcola un rate unico per ogni segmento basato sulla calibrazione
 
 ## Lingue Supportate
 
@@ -278,7 +274,7 @@ INPUT: File Video o URL YouTube
 │ 3. RICONOSCIMENTO VOCALE (Whisper.cpp + CUDA)                       │
 │    • Carica modello GGML (tiny/base/small/medium/large)             │
 │    • Accelerazione GPU via CUDA 12.6.0 (se disponibile)             │
-│    • Estrae testo con timestamp a livello di parola                 │
+│    • Estrae testo con timestamp a livello di frase                  │
 │    • Rileva automaticamente la lingua sorgente                      │
 │    Output: Testo trascritto nella lingua originale                  │
 └─────────────────────────────────────────────────────────────────────┘
@@ -286,49 +282,40 @@ INPUT: File Video o URL YouTube
    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ 4. TRADUZIONE (Google Translate API)                                │
-│    • Singola chiamata API per l'intero testo                        │
-│    • Preserva la struttura del testo                                │
+│    • Raggruppa i segmenti Whisper in frasi (divise alle pause)      │
+│    • Traduce frase per frase, in poche richieste a blocchi          │
+│    • Ogni frase tradotta mantiene i suoi timestamp originali        │
 │    • Retry automatico con exponential backoff                       │
-│    Output: Testo tradotto nella lingua destinazione                 │
+│    Output: Frasi tradotte con i rispettivi tempi di inizio/fine     │
 └─────────────────────────────────────────────────────────────────────┘
    │
    ▼
 ┌────────────────────────────────────────────────────────────────────┐
 │ 5. SINTESI TEXT-TO-SPEECH (Microsoft Edge TTS)                     │
 │    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ a) Allineamento Timestamp a Livello di Parola               │ │
-│    │    • Usa timestamp parola/frase di Whisper                  │ │
-│    │    • Segmentazione intelligente su confini frasi            │ │
-│    │    • Preserva il ritmo naturale del parlato                 │ │
+│    │ a) Allineamento alle Pause Reali                            │ │
+│    │    • I segmenti di Whisper.cpp sono contigui, quindi le     │ │
+│    │      pause si rilevano nell'audio originale (soglia         │ │
+│    │      adattiva al volume)                                    │ │
+│    │    • I confini delle frasi si spostano sulle pause          │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ b) Controllo Rate TTS Adattivo                              │ │
-│    │    • Fase calibrazione: 15 segmenti o 20% del video         │ │
-│    │    • Rilevamento varianza (soglia stdDev: 0.3)              │ │
-│    │    • Rate GLOBALE: Singolo rate per parlato consistente     │ │
-│    │    • Rate PER-SEGMENTO: Rate individuali per parlato vario  │ │
-│    │    • Range rate Edge TTS: -100% a +100% (qualità massima)   │ │
-│    │    • Predizione pesata basata su campioni calibrazione      │ │
+│    │ b) Sintesi Vocale Neurale                                   │ │
+│    │    • Una chiamata Edge TTS per frase, 4 in parallelo        │ │
+│    │    • Silenzio iniziale/finale del TTS rimosso               │ │
+│    │    • Frasi troppo lunghe risintetizzate con rate Edge TTS   │ │
+│    │      più veloce (fino a +40%, prosodia naturale)            │ │
 │    └─────────────────────────────────────────────────────────────┘ │
 │    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ c) Sintesi Voce Neurale                                     │ │
-│    │    • TTS neurale basato su cloud per ogni segmento          │ │
-│    │    • Selezione voce appropriata per la lingua               │ │
-│    │    • Output ad alta qualità 24kHz                           │ │
-│    │    • Sintesi controllata da rate per matching durata        │ │
+│    │ c) Posizionamento Ancorato ai Timestamp                     │ │
+│    │    • Ogni frase parte al suo istante assoluto originale     │ │
+│    │    • Una frase può usare la pausa successiva prima di       │ │
+│    │      essere accelerata; residuo con atempo (0,90x-1,15x)    │ │
+│    │    • Una frase in ritardo sposta solo le successive fino    │ │
+│    │      alla pausa seguente: gli errori non si accumulano      │ │
+│    │    • Concatenazione esatta, allungata alla durata video     │ │
 │    └─────────────────────────────────────────────────────────────┘ │
-│    ┌─────────────────────────────────────────────────────────────┐ │
-│    │ d) Inserimento Silenzi ULTRA-PRECISO & Lip-Sync             │ │
-│    │    • Inserisce silenzio esatto prima/dopo ogni segmento     │ │
-│    │    • Time-stretch segmenti per matchare timestamp Whisper   │ │
-│    │    • Cross-fade triangolare 10ms tra segmenti               │ │
-│    │    • Padding dinamico (2-8ms) basato su speech rate         │ │
-│    │    • Preserva pause originali tra parole (±20ms)            │ │
-│    │    • Soglia ultra-precisa: precisione 1ms                   │ │
-│    │    • Micro-aggiustamento finale per sync perfetto (±1%)     │ │
-│    │    • Accuratezza: sincronizzazione 95%+                     │ │
-│    └─────────────────────────────────────────────────────────────┘ │
-│    Output: Audio ultra-sincronizzato nella lingua destinazione     │
+│    Output: Audio doppiato allineato al parlato originale           │
 └────────────────────────────────────────────────────────────────────┘
    │
    ▼
@@ -356,33 +343,23 @@ OUTPUT: Video Tradotto (video_translated_to_{lingua}.mp4)
 
 3. **Riconoscimento Vocale**
    - Elabora l'audio con Whisper.cpp (modello medium)
-   - Estrae il testo con timestamp
+   - Estrae il testo con timestamp delle frasi
    - Rileva automaticamente la lingua se non specificata
 
 4. **Traduzione**
-   - Traduce il testo estratto usando Google Translate API
-   - Singola chiamata API per evitare rate limiting
+   - Raggruppa i segmenti Whisper in frasi, dividendo alle pause e oltre i 12 s
+   - Traduce ogni frase con Google Translate, a blocchi (una richiesta ogni ~4500 caratteri)
+   - Ogni frase tradotta mantiene i timestamp del parlato che sostituisce, così il doppiaggio dice la cosa giusta al momento giusto
    - Retry automatico con exponential backoff
 
-5. **Text-to-Speech con Controllo Rate Adattivo & Lip-Sync ULTRA-PRECISO**
-   - **Controllo Rate TTS Adattivo** (NUOVO):
-     - Fase calibrazione analizza i primi 15 segmenti (20% del video)
-     - Sistema dual-strategy basato sulla varianza del parlato:
-       - **Rate GLOBALE**: Singolo aggiustamento rate per pattern di parlato consistente (stdDev < 0.3)
-       - **Rate PER-SEGMENTO**: Rate individuale per segmento per parlato variabile (stdDev ≥ 0.3)
-     - Predizione intelligente durata usando campioni calibrazione pesati
-     - Controllo rate Edge TTS: -100% a +100% per aggiustamento naturale
-   - Genera voce dal testo tradotto usando voci neurali Microsoft Edge TTS
-   - Traduzione a livello di frase che preserva contesto e significato
+5. **Text-to-Speech con Lip-Sync Ancorato ai Timestamp**
+   - Rileva le pause reali dell'oratore nell'audio originale (la soglia si adatta al volume, così la musica di sottofondo non le nasconde) e sposta lì i confini delle frasi
+   - Sintetizza ogni frase con le voci neurali Microsoft Edge TTS (4 richieste in parallelo), rimuovendo il silenzio che Edge TTS aggiunge attorno al parlato
+   - Le frasi più lunghe del loro spazio vengono risintetizzate con un rate Edge TTS più veloce (fino a +40%), molto più naturale che stirare l'audio
+   - Posiziona ogni frase al suo istante di inizio assoluto originale; una frase può estendersi nella pausa successiva prima di essere accelerata, e lo scarto residuo viene adattato con atempo entro 0,90x-1,15x
+   - Una frase che resta lunga ritarda solo le successive finché la pausa seguente non assorbe il ritardo, quindi gli errori non si accumulano lungo il video
+   - Concatenazione esatta al campione (senza crossfade che accorcerebbero la traccia), allungata alla durata esatta del video
    - Codifica UTF-8 corretta che preserva caratteri accentati (à,è,ì,ò,ù,é,á)
-   - Allineamento timestamp a livello di parola usando i timing precisi di Whisper
-   - Inserimento automatico silenzi per preservare le pause originali (precisione ±20ms)
-   - Cross-fade triangolare 10ms tra segmenti per transizioni fluide
-   - Padding dinamico (2-8ms) regolato in base all'analisi del ritmo vocale
-   - Time-stretch individuale per segmento per matchare esattamente le durate timestamp (precisione 1ms)
-   - Micro-aggiustamento finale per sincronizzazione perfetta (tolleranza ±1%)
-   - Risultato: precisione sincronizzazione labiale 95%+
-   - Output ad alta qualità 24kHz
 
 6. **Remux Video**
    - Combina video originale con audio tradotto

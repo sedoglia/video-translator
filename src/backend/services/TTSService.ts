@@ -3,6 +3,7 @@ import path from 'path';
 import { execFile } from 'child_process';
 import { JobLogger } from '../utils/logger';
 import { LANGUAGES } from '../../shared/types';
+import type { TimedText } from '../utils/speech-groups';
 import ffmpeg from 'fluent-ffmpeg';
 import { EdgeTTS } from '@andresaya/edge-tts';
 
@@ -12,22 +13,43 @@ interface AudioSegment {
   silenceDuration: number;
 }
 
+interface SynthesizedClip {
+  file: string;
+  duration: number;
+  rate: number; // Edge TTS rate in percent used for this clip
+}
+
+// Timeline tuning for aligned synthesis. Edge TTS's own rate control sounds
+// far more natural than atempo, so it does the heavy lifting; atempo only
+// absorbs the residual mismatch within a range where it stays transparent.
+const MAX_TTS_RATE = 40;          // max Edge TTS speed-up, percent
+const RESYNTH_THRESHOLD = 1.08;   // re-synthesize faster above this overflow
+const MAX_SPEEDUP_TEMPO = 1.15;   // max atempo speed-up
+const MIN_SLOWDOWN_TEMPO = 0.9;   // max atempo slow-down
+const MIN_PAUSE = 0.15;           // keep at least this gap before the next phrase
+const TTS_CONCURRENCY = 4;
+
 export class TTSService {
   constructor(private logger: JobLogger) {}
 
+  /**
+   * @param alignedSegments translated phrases carrying the start/end time of
+   *   the source speech they replace. When present, each phrase is placed at
+   *   its own timestamp (lip-sync); otherwise the text is spread over the
+   *   original duration.
+   */
   async synthesize(
     text: string,
     targetLanguage: string,
     outputPath: string,
     originalAudioPath?: string,
-    whisperSegments?: any[] // Whisper segments with timestamps for precision lip-sync
+    alignedSegments?: TimedText[]
   ): Promise<string> {
     this.logger.stage('SYNTHESIZING', `Generating TTS for language: ${targetLanguage}`);
 
     try {
       const tempDir = path.dirname(outputPath);
       const tempAudioPath = path.join(tempDir, 'tts_temp.mp3');
-      const tempProcessedPath = path.join(tempDir, 'tts_processed.wav');
 
       // Get Edge TTS voice for language
       const voice = this.getEdgeVoiceForLanguage(targetLanguage);
@@ -35,61 +57,28 @@ export class TTSService {
       this.logger.debug('Generating speech with Edge TTS', {
         voice,
         textLength: text.length,
-        hasWhisperSegments: !!whisperSegments,
-        segmentsCount: whisperSegments?.length || 0
+        alignedSegments: alignedSegments?.length || 0
       });
 
-      // If we have Whisper segments with timestamps, use advanced timestamp-based lip-sync
-      if (originalAudioPath && fs.existsSync(originalAudioPath) && whisperSegments && whisperSegments.length > 0) {
-        // Validate that segments have valid timestamps
-        const hasValidTimestamps = whisperSegments.every(seg =>
+      const hasValidTimestamps = !!alignedSegments && alignedSegments.length > 0 &&
+        alignedSegments.every(seg =>
           typeof seg.start === 'number' && !isNaN(seg.start) &&
           typeof seg.end === 'number' && !isNaN(seg.end)
         );
 
-        if (hasValidTimestamps) {
-          this.logger.info('Using ADVANCED timestamp-based lip-sync with Whisper segments');
-          try {
-            await this.synthesizeWithWhisperTimestamps(
-              text,
-              voice,
-              originalAudioPath,
-              tempDir,
-              outputPath,
-              whisperSegments
-            );
-          } catch (error: any) {
-            this.logger.warn('Timestamp-based synthesis failed, falling back to intelligent segmentation', {
-              error: error.message
-            });
-            await this.synthesizeWithIntelligentSegmentation(
-              text,
-              voice,
-              originalAudioPath,
-              tempDir,
-              outputPath
-            );
-          }
-        } else {
-          this.logger.warn('Whisper segments have invalid timestamps, using intelligent segmentation instead');
-          await this.synthesizeWithIntelligentSegmentation(
-            text,
-            voice,
-            originalAudioPath,
-            tempDir,
-            outputPath
-          );
+      if (originalAudioPath && fs.existsSync(originalAudioPath) && hasValidTimestamps) {
+        this.logger.info('Using timestamp-anchored lip-sync with translated segments');
+        try {
+          await this.synthesizeAligned(alignedSegments!, voice, originalAudioPath, tempDir, outputPath);
+        } catch (error: any) {
+          this.logger.warn('Timestamp-anchored synthesis failed, falling back to intelligent segmentation', {
+            error: error.message
+          });
+          await this.synthesizeWithIntelligentSegmentation(text, voice, originalAudioPath, tempDir, outputPath);
         }
       } else if (originalAudioPath && fs.existsSync(originalAudioPath)) {
-        // Fallback to intelligent segmentation if no Whisper segments
-        this.logger.info('Using intelligent segmentation for lip-sync (no Whisper segments)');
-        await this.synthesizeWithIntelligentSegmentation(
-          text,
-          voice,
-          originalAudioPath,
-          tempDir,
-          outputPath
-        );
+        this.logger.info('Using intelligent segmentation for lip-sync (no timestamps)');
+        await this.synthesizeWithIntelligentSegmentation(text, voice, originalAudioPath, tempDir, outputPath);
       } else {
         // No original audio, generate normally
         await this.generateSpeechEdgeTTS(text, voice, tempAudioPath);
@@ -201,296 +190,287 @@ export class TTSService {
   }
 
   /**
-   * ADVANCED: Synthesize with Whisper timestamp-based segmentation
-   * Uses actual word/phrase timestamps from Whisper for maximum precision
-   * WITH SILENCE INSERTION for perfect pause preservation
+   * Timestamp-anchored synthesis: every translated phrase starts at the time
+   * its source phrase starts in the original audio.
+   *
+   * Positions are absolute — a phrase that runs long delays only what follows
+   * until the next pause absorbs it, instead of shifting the rest of the video.
+   * A phrase that does not fit its slot may also use the pause after it before
+   * being sped up, and speed-up goes through Edge TTS's rate first (natural
+   * prosody) and atempo only for the small residual.
    */
-  private async synthesizeWithWhisperTimestamps(
-    translatedText: string,
+  private async synthesizeAligned(
+    segments: TimedText[],
     voice: string,
     originalAudioPath: string,
     tempDir: string,
-    outputPath: string,
-    whisperSegments: any[]
+    outputPath: string
   ): Promise<void> {
-    this.logger.info('Starting ULTRA-PRECISE timestamp-based synthesis with silence insertion', {
-      segments: whisperSegments.length,
-      translatedLength: translatedText.length,
-      translatedTextPreview: translatedText.substring(0, 200)
+    const totalDuration = await this.getAudioDuration(originalAudioPath);
+    const workDir = path.join(tempDir, 'tts_segments');
+    fs.mkdirSync(workDir, { recursive: true });
+
+    segments = await this.snapToSourcePauses(segments, originalAudioPath);
+
+    this.logger.info('Starting timestamp-anchored synthesis', {
+      segments: segments.length,
+      totalDuration: totalDuration.toFixed(2)
     });
 
-    // Get original audio duration for final verification
-    const originalDuration = await this.getAudioDuration(originalAudioPath);
+    // Time each phrase may occupy: its own speech plus the pause that follows,
+    // minus a minimal gap so consecutive phrases don't run into each other.
+    const slotFor = (i: number, start: number): { speech: number; max: number } => {
+      const seg = segments[i];
+      const nextStart = i + 1 < segments.length ? segments[i + 1].start : totalDuration;
+      const speech = Math.max(0.1, seg.end - start);
+      return { speech, max: Math.max(speech, nextStart - start - MIN_PAUSE) };
+    };
 
-    // Group consecutive Whisper segments into sentence-level units so that each
-    // TTS call receives a full sentence — preserving Edge TTS's natural prosody.
-    const sentenceGroups = this.groupWhisperSegmentsBySentence(whisperSegments);
-    this.logger.info('Grouped Whisper segments by sentence boundaries', {
-      rawSegments: whisperSegments.length,
-      sentenceGroups: sentenceGroups.length,
-      avgSegmentsPerGroup: (whisperSegments.length / Math.max(1, sentenceGroups.length)).toFixed(2)
+    // 1. Synthesize every phrase at natural speed, then re-synthesize faster
+    //    the ones that would overflow their slot even using the next pause.
+    const clips: Array<SynthesizedClip | null> = new Array(segments.length).fill(null);
+    let resynthesized = 0;
+    await this.runPool(segments.length, TTS_CONCURRENCY, async (i) => {
+      const text = segments[i].text.trim();
+      if (!text) return;
+
+      let clip = await this.synthesizeClip(text, voice, path.join(workDir, `seg_${i}`), 0);
+      // Aim for the phrase's own speech plus half of the following pause, so
+      // pauses stay audible unless the translation is much longer.
+      const slot = slotFor(i, segments[i].start);
+      const overflow = clip.duration / (slot.speech + (slot.max - slot.speech) / 2);
+      if (overflow > RESYNTH_THRESHOLD) {
+        const rate = Math.min(MAX_TTS_RATE, Math.ceil((overflow - 1) * 100));
+        clip = await this.synthesizeClip(text, voice, path.join(workDir, `seg_${i}`), rate);
+        resynthesized++;
+      }
+      clips[i] = clip;
     });
 
-    // Split translated text into the same number of sentence-level groups
-    const translatedSegments = this.splitTextProportionally(translatedText, sentenceGroups.length);
+    // 2. Lay phrases on the timeline at their absolute start, fitting each one
+    //    into the time actually left (it shrinks if the previous phrase ran late).
+    const timeline: string[] = [];
+    let cursor = 0;
+    let silenceIndex = 0;
+    let stretchedCount = 0;
+    let maxTempo = 1;
+    let minTempo = 1;
+    let maxLateness = 0;
+    let totalLateness = 0;
 
-    this.logger.debug('Segment alignment', {
-      sentenceGroups: sentenceGroups.length,
-      translatedSegments: translatedSegments.length,
-      firstTranslatedSegment: translatedSegments[0]?.substring(0, 100),
-      lastTranslatedSegment: translatedSegments[translatedSegments.length - 1]?.substring(0, 100)
+    const pushSilence = async (duration: number) => {
+      if (duration < 0.005) return;
+      const file = path.join(workDir, `silence_${silenceIndex++}.wav`);
+      await this.generateSilence(file, duration);
+      timeline.push(file);
+      cursor += duration;
+    };
+
+    for (let i = 0; i < segments.length; i++) {
+      const clip = clips[i];
+      if (!clip) continue;
+
+      const start = Math.max(segments[i].start, cursor);
+      const lateness = start - segments[i].start;
+      maxLateness = Math.max(maxLateness, lateness);
+      totalLateness += lateness;
+
+      await pushSilence(start - cursor);
+
+      const slot = slotFor(i, start);
+      let tempo = 1;
+      if (clip.duration > slot.max) {
+        tempo = Math.min(MAX_SPEEDUP_TEMPO, clip.duration / slot.max);
+      } else if (clip.duration < slot.speech * 0.85) {
+        // Much shorter than the original phrase: stretch slightly so the voice
+        // covers more of the speaker's lip movement.
+        tempo = Math.max(MIN_SLOWDOWN_TEMPO, clip.duration / slot.speech);
+      }
+
+      let file = clip.file;
+      let duration = clip.duration;
+      if (Math.abs(tempo - 1) > 0.02) {
+        const stretched = clip.file.replace(/\.wav$/, '_t.wav');
+        await this.applyTempo(clip.file, stretched, tempo);
+        file = stretched;
+        duration = await this.getAudioDuration(stretched);
+        stretchedCount++;
+        maxTempo = Math.max(maxTempo, tempo);
+        minTempo = Math.min(minTempo, tempo);
+      }
+
+      timeline.push(file);
+      cursor = start + duration;
+
+      this.logger.debug(`Segment ${i + 1}/${segments.length} placed`, {
+        start: start.toFixed(2),
+        lateness: lateness.toFixed(2),
+        speech: slot.speech.toFixed(2),
+        slot: slot.max.toFixed(2),
+        clip: clip.duration.toFixed(2),
+        ttsRate: `${clip.rate}%`,
+        tempo: tempo.toFixed(3)
+      });
+    }
+
+    // 3. Join without crossfades (they shorten the track and shift every later
+    //    phrase), then pad/trim to exactly the original duration.
+    await this.concatenateExact(timeline, totalDuration, outputPath, workDir);
+
+    const placed = clips.filter(c => c).length;
+    this.logger.info('Timestamp-anchored synthesis complete', {
+      segments: placed,
+      resynthesizedFaster: resynthesized,
+      stretched: stretchedCount,
+      tempoRange: `${minTempo.toFixed(2)}-${maxTempo.toFixed(2)}`,
+      maxLateness: maxLateness.toFixed(2) + 's',
+      avgLateness: (totalLateness / Math.max(1, placed)).toFixed(3) + 's',
+      overrunAtEnd: Math.max(0, cursor - totalDuration).toFixed(2) + 's'
     });
 
-    // Align translated segments with sentence-group timestamps (1:1 now)
-    const alignedSegments = this.alignTranslatedSegmentsWithTimestamps(
-      translatedSegments,
-      sentenceGroups
-    );
+    fs.rmSync(workDir, { recursive: true, force: true });
+  }
 
-    this.logger.debug('Aligned segments for processing', { count: alignedSegments.length });
+  /**
+   * Move phrase boundaries onto the real pauses of the source audio.
+   *
+   * Whisper.cpp returns contiguous segments (each starts where the previous
+   * ends), so a phrase "starts" during the speaker's pause and the dub would
+   * talk through it. A boundary with a detected pause nearby is split around
+   * it: the previous phrase ends when the pause begins, the next one starts
+   * when speech resumes. The silence threshold follows the track's loudness
+   * so background music doesn't hide every pause.
+   */
+  private async snapToSourcePauses(segments: TimedText[], audioPath: string): Promise<TimedText[]> {
+    const meanVolume = await this.measureMeanVolume(audioPath);
+    if (meanVolume === null) return segments;
 
-    // Generate TTS for each aligned segment with PRECISE timing and silence insertion
-    const segmentAudioFiles: string[] = [];
+    const threshold = Math.round(meanVolume - 12);
+    const pauses = await this.detectPauses(audioPath, threshold, 0.25);
+    const result = segments.map(s => ({ ...s }));
+    const window = 1.0; // max distance between a Whisper boundary and a real pause
+    const minPhrase = 0.3;
+    let snapped = 0;
 
-    // PER-SEGMENT ADAPTIVE RATE CONTROL: Learn TTS characteristics from calibration, then adapt per segment
-    let usePerSegmentRate = false; // Enable after calibration if variance is high
-    let globalAdaptiveTtsRate = '+0%'; // Fallback global rate for low-variance videos
-    const calibrationSamples: Array<{ targetDuration: number; actualDuration: number; textLength: number }> = [];
-    const calibrationSegmentCount = Math.min(15, Math.floor(alignedSegments.length * 0.20)); // First 15 segments or 20%
+    for (let i = 1; i < result.length; i++) {
+      const prev = result[i - 1];
+      const next = result[i];
+      const boundary = (prev.end + next.start) / 2;
+      const pause = pauses.find(([ps, pe]) => pe > boundary - window && ps < boundary + window);
+      if (!pause) continue;
 
-    for (let i = 0; i < alignedSegments.length; i++) {
-      const { text, startTime, endTime } = alignedSegments[i];
-      const targetDuration = endTime - startTime;
-
-      // Calculate silence BEFORE this segment (from previous segment end to this segment start)
-      let silenceBefore = 0;
-      if (i > 0) {
-        const previousEnd = alignedSegments[i - 1].endTime;
-        silenceBefore = startTime - previousEnd;
-      } else {
-        // First segment - add silence from 0 to startTime
-        silenceBefore = startTime;
+      const newEnd = Math.max(prev.start + minPhrase, Math.min(prev.end, pause[0]));
+      const newStart = Math.min(next.end - minPhrase, Math.max(next.start, pause[1]));
+      if (newStart >= newEnd) {
+        prev.end = newEnd;
+        next.start = newStart;
+        snapped++;
       }
+    }
 
-      // IMPROVEMENT 1: Reduced threshold from 50ms to 20ms for more natural pauses
-      // Even short pauses are important for lip-sync realism
-      if (silenceBefore > 0.02) {
-        const silenceFile = path.join(tempDir, `silence_${i}.wav`);
-        await this.generateSilence(silenceFile, silenceBefore);
-        segmentAudioFiles.push(silenceFile);
+    this.logger.info('Snapped phrase boundaries to source pauses', {
+      silenceThreshold: `${threshold}dB`,
+      pausesDetected: pauses.length,
+      boundariesSnapped: snapped
+    });
+    return result;
+  }
 
-        this.logger.debug(`Added ${silenceBefore.toFixed(3)}s silence before segment ${i + 1}`);
+  private async measureMeanVolume(audioPath: string): Promise<number | null> {
+    const log = await this.runFfmpegLog(['-i', audioPath, '-af', 'volumedetect', '-f', 'null', '-']);
+    const match = log.match(/mean_volume:\s*(-?[\d.]+) dB/);
+    return match ? parseFloat(match[1]) : null;
+  }
+
+  private async detectPauses(audioPath: string, thresholdDb: number, minDuration: number): Promise<Array<[number, number]>> {
+    const log = await this.runFfmpegLog(['-i', audioPath, '-af', `silencedetect=noise=${thresholdDb}dB:d=${minDuration}`, '-f', 'null', '-']);
+    const pauses: Array<[number, number]> = [];
+    let start: number | null = null;
+    for (const line of log.split('\n')) {
+      const s = line.match(/silence_start: (-?[\d.]+)/);
+      if (s) start = Math.max(0, parseFloat(s[1]));
+      const e = line.match(/silence_end: ([\d.]+)/);
+      if (e && start !== null) {
+        pauses.push([start, parseFloat(e[1])]);
+        start = null;
       }
+    }
+    return pauses;
+  }
 
-      // Skip TTS generation for placeholder segments (single space or empty)
-      if (text.trim().length === 0) {
-        // Generate silence for the entire segment duration
-        const silenceFile = path.join(tempDir, `placeholder_silence_${i}.wav`);
-        await this.generateSilence(silenceFile, targetDuration);
-        segmentAudioFiles.push(silenceFile);
-
-        this.logger.debug(`Placeholder segment ${i + 1}: using ${targetDuration.toFixed(3)}s silence`);
-        continue;
-      }
-
-      const segmentFile = path.join(tempDir, `ts_segment_${i}.mp3`);
-      const segmentWav = path.join(tempDir, `ts_segment_${i}.wav`);
-
-      // ADAPTIVE RATE: After calibration phase, decide strategy based on variance
-      if (i === calibrationSegmentCount && calibrationSamples.length > 0) {
-        // Calculate average duration ratio from calibration samples
-        const avgTargetDuration = calibrationSamples.reduce((sum, s) => sum + s.targetDuration, 0) / calibrationSamples.length;
-        const avgActualDuration = calibrationSamples.reduce((sum, s) => sum + s.actualDuration, 0) / calibrationSamples.length;
-        const durationRatio = avgActualDuration / avgTargetDuration;
-
-        // Calculate variance to detect inconsistent calibration
-        const variance = calibrationSamples.reduce((sum, s) => {
-          const ratio = s.actualDuration / s.targetDuration;
-          return sum + Math.pow(ratio - durationRatio, 2);
-        }, 0) / calibrationSamples.length;
-        const stdDev = Math.sqrt(variance);
-
-        // Calculate needed rate adjustment
-        // Edge TTS rate works as playback speed: +50% = faster, -50% = slower
-        // If TTS is too fast (ratio < 1), need negative rate to slow down
-        // If TTS is too slow (ratio > 1), need positive rate to speed up
-        const rateAdjustment = (durationRatio - 1) * 100; // Convert to percentage
-
-        // Edge TTS supports rate from -100% to +200% but quality degrades
-        // sharply beyond ±35%. Tight clamping preserves voice naturalness;
-        // residual timing mismatch is handled by time-stretching at the end.
-
-        // STRATEGY SELECTION based on variance:
-        if (stdDev < 0.3) {
-          // Low variance: Use global rate control (consistent TTS speed)
-          const clampedRate = Math.max(-35, Math.min(35, rateAdjustment));
-          globalAdaptiveTtsRate = clampedRate === 0 ? '+0%' : `${clampedRate > 0 ? '+' : ''}${Math.round(clampedRate)}%`;
-          usePerSegmentRate = false;
-
-          this.logger.info('Adaptive TTS rate calibrated - Using GLOBAL rate', {
-            calibrationSamples: calibrationSamples.length,
-            avgTargetDuration: avgTargetDuration.toFixed(2) + 's',
-            avgActualDuration: avgActualDuration.toFixed(2) + 's',
-            durationRatio: durationRatio.toFixed(3),
-            variance: variance.toFixed(3),
-            stdDev: stdDev.toFixed(3),
-            calculatedRate: globalAdaptiveTtsRate,
-            rateLimited: Math.abs(rateAdjustment) > 35,
-            strategy: 'global'
-          });
+  /** Run ffmpeg for its analysis output (filters log to stderr). */
+  private runFfmpegLog(args: string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+      execFile('ffmpeg', ['-hide_banner', ...args], { windowsHide: true, maxBuffer: 20 * 1024 * 1024 }, (error, _stdout, stderr) => {
+        if (error) {
+          reject(new Error(`ffmpeg analysis failed: ${(stderr || error.message).toString().slice(-500)}`));
         } else {
-          // High variance: Use per-segment rate control
-          usePerSegmentRate = true;
-
-          this.logger.info('Adaptive TTS rate calibrated - Using PER-SEGMENT rate', {
-            calibrationSamples: calibrationSamples.length,
-            avgTargetDuration: avgTargetDuration.toFixed(2) + 's',
-            avgActualDuration: avgActualDuration.toFixed(2) + 's',
-            durationRatio: durationRatio.toFixed(3),
-            variance: variance.toFixed(3),
-            stdDev: stdDev.toFixed(3),
-            varianceTooHigh: true,
-            strategy: 'per-segment'
-          });
+          resolve(stderr.toString());
         }
-      }
+      });
+    });
+  }
 
-      // Calculate rate for this segment
-      let segmentRate = '+0%';
-      if (i >= calibrationSegmentCount) {
-        if (usePerSegmentRate) {
-          // PER-SEGMENT: Predict rate based on target duration
-          // Use calibration data to estimate how much TTS will deviate for this duration
-          const predictedActualDuration = this.predictTTSDuration(targetDuration, calibrationSamples);
-          const segmentRatio = predictedActualDuration / targetDuration;
-          const segmentRateAdjustment = (segmentRatio - 1) * 100;
-          const clampedSegmentRate = Math.max(-35, Math.min(35, segmentRateAdjustment));
-          segmentRate = clampedSegmentRate === 0 ? '+0%' : `${clampedSegmentRate > 0 ? '+' : ''}${Math.round(clampedSegmentRate)}%`;
+  /**
+   * Synthesize one phrase and normalize it to 44.1kHz mono WAV with the
+   * leading/trailing silence Edge TTS adds trimmed away (it would otherwise
+   * delay every phrase start by ~100-200ms) and short fades against clicks.
+   */
+  private async synthesizeClip(text: string, voice: string, basePath: string, rate: number): Promise<SynthesizedClip> {
+    const mp3 = `${basePath}_r${rate}.mp3`;
+    const wav = `${basePath}_r${rate}.wav`;
+    await this.generateSpeechEdgeTTSWithRate(text, voice, mp3, `${rate >= 0 ? '+' : ''}${rate}%`);
+
+    const trim = 'silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.03';
+    const filter = [trim, 'afade=t=in:d=0.01', 'areverse', trim, 'afade=t=in:d=0.01', 'areverse'].join(',');
+    await this.runFfmpeg(['-i', mp3, '-af', filter, '-ar', '44100', '-ac', '1', '-c:a', 'pcm_s16le', '-y', wav]);
+    fs.unlinkSync(mp3);
+
+    return { file: wav, duration: await this.getAudioDuration(wav), rate };
+  }
+
+  private async applyTempo(inputPath: string, outputPath: string, tempo: number): Promise<void> {
+    await this.runFfmpeg(['-i', inputPath, '-af', this.getAtempoFilter(tempo), '-ar', '44100', '-ac', '1', '-c:a', 'pcm_s16le', '-y', outputPath]);
+  }
+
+  /**
+   * Concatenate same-format WAVs sample-exactly (concat demuxer, no
+   * re-timing) and pad or trim the result to the target duration.
+   */
+  private async concatenateExact(files: string[], duration: number, outputPath: string, workDir: string): Promise<void> {
+    const listPath = path.join(workDir, 'concat.txt');
+    // Absolute paths: the concat demuxer resolves relative entries against the
+    // list file's own directory, and the temp dir is usually relative (./temp).
+    fs.writeFileSync(listPath, files.map(f => `file '${path.resolve(f).replace(/\\/g, '/').replace(/'/g, "'\\''")}'`).join('\n'));
+    await this.runFfmpeg([
+      '-f', 'concat', '-safe', '0', '-i', listPath,
+      '-af', 'apad', '-t', duration.toFixed(3),
+      '-ar', '44100', '-ac', '1', '-c:a', 'pcm_s16le', '-y', outputPath
+    ]);
+  }
+
+  private runFfmpeg(args: string[]): Promise<void> {
+    return new Promise((resolve, reject) => {
+      execFile('ffmpeg', ['-hide_banner', '-loglevel', 'error', ...args], { windowsHide: true }, (error, _stdout, stderr) => {
+        if (error) {
+          reject(new Error(`ffmpeg failed: ${(stderr || error.message).toString().slice(-500)}`));
         } else {
-          // GLOBAL: Use the same rate for all segments
-          segmentRate = globalAdaptiveTtsRate;
+          resolve();
         }
-      }
-
-      // Generate TTS with calculated rate (per-segment or global)
-      await this.generateSpeechEdgeTTSWithRate(text, voice, segmentFile, segmentRate);
-
-      // Convert to WAV
-      await this.convertToWav(segmentFile, segmentWav);
-
-      // Get actual duration
-      const actualDuration = await this.getAudioDuration(segmentWav);
-
-      // Collect calibration samples from first segments (before adaptive rate kicks in)
-      if (i < calibrationSegmentCount) {
-        calibrationSamples.push({
-          targetDuration,
-          actualDuration,
-          textLength: text.trim().length
-        });
-      }
-
-      // Stretch only on meaningful mismatch: >5% relative AND >100ms absolute.
-      // Tiny scrubs through atempo (PSOLA) introduce subtle artifacts that
-      // accumulate over many segments and flatten the prosody — the
-      // remaining drift is absorbed by the final whole-track adjustment.
-      const stretchedFile = path.join(tempDir, `ts_stretched_${i}.wav`);
-      const difference = Math.abs(targetDuration - actualDuration);
-      const relativeDiff = targetDuration > 0 ? difference / targetDuration : 0;
-      const needsStretching = relativeDiff > 0.05 && difference > 0.1;
-
-      if (needsStretching) {
-        // Time-stretch to exact target duration
-        // No padding - let cross-fade handle transitions between segments
-        await this.timeStretchAudio(segmentWav, stretchedFile, targetDuration, actualDuration);
-        segmentAudioFiles.push(stretchedFile);
-        fs.unlinkSync(segmentWav);
-      } else {
-        // Duration is already perfect, use as-is
-        segmentAudioFiles.push(segmentWav);
-      }
-
-      // Clean up MP3
-      fs.unlinkSync(segmentFile);
-
-      // Calculate speech rate for logging
-      const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
-      const wordsPerSecond = wordCount / targetDuration;
-
-      this.logger.debug(`Segment ${i + 1}/${alignedSegments.length} processed`, {
-        text: text.substring(0, 50),
-        targetDuration: targetDuration.toFixed(3),
-        actualDuration: actualDuration.toFixed(3),
-        difference: difference.toFixed(4) + 's',
-        stretched: needsStretching,
-        speechRate: wordsPerSecond.toFixed(1) + ' wps',
-        ttsRate: segmentRate,
-        calibrationPhase: i < calibrationSegmentCount,
-        silenceBefore: silenceBefore.toFixed(3)
       });
-    }
-
-    // Add final silence if needed (from last segment end to total duration)
-    const lastSegment = alignedSegments[alignedSegments.length - 1];
-    const finalSilence = originalDuration - lastSegment.endTime;
-    if (finalSilence > 0.02) {
-      const silenceFile = path.join(tempDir, `silence_final.wav`);
-      await this.generateSilence(silenceFile, finalSilence);
-      segmentAudioFiles.push(silenceFile);
-      this.logger.debug(`Added ${finalSilence.toFixed(3)}s final silence`);
-    }
-
-    // Log total files to concatenate for debugging
-    this.logger.debug('Concatenating audio files', {
-      totalFiles: segmentAudioFiles.length,
-      expectedSegments: alignedSegments.length,
-      expectedSilences: '~' + alignedSegments.length
     });
+  }
 
-    // Concatenate all segments WITH silences
-    await this.concatenateAudioFiles(segmentAudioFiles, outputPath);
-
-    // Final duration check
-    const finalDuration = await this.getAudioDuration(outputPath);
-    const durationDiff = Math.abs(finalDuration - originalDuration);
-    this.logger.info('Ultra-precise timestamp-based synthesis complete', {
-      originalDuration: originalDuration.toFixed(2),
-      finalDuration: finalDuration.toFixed(2),
-      difference: durationDiff.toFixed(2) + 's',
-      differencePercent: (durationDiff / originalDuration * 100).toFixed(2) + '%',
-      segments: alignedSegments.length,
-      accuracy: (100 - (durationDiff / originalDuration * 100)).toFixed(2) + '%',
-      filesConcat: segmentAudioFiles.length
-    });
-
-    // Apply final time-stretch to match exact duration if there's any mismatch
-    // This handles accumulated rounding errors and any stretch failures
-    if (durationDiff > 0.1) { // Only adjust if difference > 100ms
-      this.logger.info('Applying final time-stretch adjustment', {
-        currentDuration: finalDuration.toFixed(2),
-        targetDuration: originalDuration.toFixed(2),
-        adjustment: durationDiff.toFixed(2) + 's'
-      });
-
-      const adjustedFile = path.join(tempDir, 'ts_final_adjusted.wav');
-      await this.timeStretchAudio(outputPath, adjustedFile, originalDuration, finalDuration);
-      fs.copyFileSync(adjustedFile, outputPath);
-      fs.unlinkSync(adjustedFile);
-
-      const newDuration = await this.getAudioDuration(outputPath);
-      this.logger.info('Final adjustment complete', {
-        finalDuration: newDuration.toFixed(2),
-        targetDuration: originalDuration.toFixed(2),
-        remainingDiff: Math.abs(newDuration - originalDuration).toFixed(3) + 's'
-      });
-    }
-
-    // Clean up segment files
-    segmentAudioFiles.forEach(file => {
-      if (fs.existsSync(file)) {
-        fs.unlinkSync(file);
+  /** Run task(0..count-1) with at most `limit` in flight. */
+  private async runPool(count: number, limit: number, task: (i: number) => Promise<void>): Promise<void> {
+    let next = 0;
+    const worker = async () => {
+      while (next < count) {
+        const i = next++;
+        await task(i);
       }
-    });
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, count) }, worker));
   }
 
   /**
@@ -515,334 +495,6 @@ export class TTSService {
         }
       });
     });
-  }
-
-  /**
-   * Align translated text segments with Whisper timestamp segments
-   */
-  private alignTranslatedSegmentsWithTimestamps(
-    translatedSegments: string[],
-    whisperSegments: any[]
-  ): Array<{ text: string; startTime: number; endTime: number }> {
-    const aligned: Array<{ text: string; startTime: number; endTime: number }> = [];
-    let strategy: string;
-
-    // Validate whisper segments have valid timestamps
-    const invalidSegments = whisperSegments.filter((seg, idx) => {
-      const hasValidStart = typeof seg.start === 'number' && !isNaN(seg.start);
-      const hasValidEnd = typeof seg.end === 'number' && !isNaN(seg.end);
-      if (!hasValidStart || !hasValidEnd) {
-        this.logger.warn(`Invalid timestamp in Whisper segment ${idx}`, {
-          start: seg.start,
-          end: seg.end,
-          text: seg.text?.substring(0, 50)
-        });
-        return true;
-      }
-      return false;
-    });
-
-    if (invalidSegments.length > 0) {
-      throw new Error(`Found ${invalidSegments.length} Whisper segments with invalid timestamps. Cannot perform timestamp-based alignment.`);
-    }
-
-    if (translatedSegments.length === whisperSegments.length) {
-      // Perfect 1:1 alignment
-      strategy = '1:1 perfect match';
-      for (let i = 0; i < translatedSegments.length; i++) {
-        aligned.push({
-          text: translatedSegments[i],
-          startTime: whisperSegments[i].start,
-          endTime: whisperSegments[i].end
-        });
-      }
-    } else if (translatedSegments.length < whisperSegments.length) {
-      // More Whisper segments than translated - map each Whisper to nearest translated
-      strategy = 'reverse nearest mapping (fewer translated segments)';
-
-      // First, create a mapping of which translated segment each Whisper segment belongs to
-      const ratio = translatedSegments.length / whisperSegments.length;
-      const whisperToTranslated: number[] = [];
-
-      for (let i = 0; i < whisperSegments.length; i++) {
-        const translatedIdx = Math.min(
-          Math.floor(i * ratio),
-          translatedSegments.length - 1
-        );
-        whisperToTranslated.push(translatedIdx);
-      }
-
-      // Group consecutive Whisper segments that map to the same translated segment
-      for (let transIdx = 0; transIdx < translatedSegments.length; transIdx++) {
-        // Find all Whisper segments that map to this translated segment
-        const whisperIndices: number[] = [];
-        for (let i = 0; i < whisperToTranslated.length; i++) {
-          if (whisperToTranslated[i] === transIdx) {
-            whisperIndices.push(i);
-          }
-        }
-
-        if (whisperIndices.length > 0) {
-          // Use the time range from first to last Whisper segment in this group
-          const firstWhisperIdx = whisperIndices[0];
-          const lastWhisperIdx = whisperIndices[whisperIndices.length - 1];
-
-          aligned.push({
-            text: translatedSegments[transIdx],
-            startTime: whisperSegments[firstWhisperIdx].start,
-            endTime: whisperSegments[lastWhisperIdx].end
-          });
-        }
-      }
-    } else {
-      // More translated segments than Whisper - map to nearest Whisper segments
-      strategy = 'nearest mapping (more translated segments)';
-
-      // Calculate which Whisper segment each translated segment should map to
-      const ratio = whisperSegments.length / translatedSegments.length;
-
-      for (let i = 0; i < translatedSegments.length; i++) {
-        // Find the nearest Whisper segment for this translated segment
-        const whisperIdx = Math.min(
-          Math.floor(i * ratio),
-          whisperSegments.length - 1
-        );
-
-        // Use that Whisper segment's timing directly
-        aligned.push({
-          text: translatedSegments[i],
-          startTime: whisperSegments[whisperIdx].start,
-          endTime: whisperSegments[whisperIdx].end
-        });
-      }
-
-      // Fix overlaps by adjusting timestamps
-      // If segments overlap (share same Whisper timing), subdivide the time
-      for (let i = 0; i < aligned.length - 1; i++) {
-        const current = aligned[i];
-        const next = aligned[i + 1];
-
-        // Check if they overlap (same or overlapping Whisper segment)
-        if (next.startTime < current.endTime) {
-          // Find all segments that map to this same time range
-          const groupStart = i;
-          let groupEnd = i + 1;
-
-          while (groupEnd < aligned.length && aligned[groupEnd].startTime < current.endTime) {
-            groupEnd++;
-          }
-
-          // Subdivide the time range among these segments
-          const rangeStart = current.startTime;
-          const rangeEnd = current.endTime;
-          const rangeDuration = rangeEnd - rangeStart;
-          const segmentsInRange = groupEnd - groupStart;
-
-          // Calculate total text length in this range
-          const groupSegments = aligned.slice(groupStart, groupEnd);
-          const totalTextLength = groupSegments.reduce((sum, seg) => sum + seg.text.length, 0);
-
-          // Redistribute time based on text length
-          let cumulativeTime = rangeStart;
-          for (let j = groupStart; j < groupEnd; j++) {
-            const textProportion = aligned[j].text.length / totalTextLength;
-            const duration = rangeDuration * textProportion;
-
-            aligned[j].startTime = cumulativeTime;
-            aligned[j].endTime = cumulativeTime + duration;
-            cumulativeTime += duration;
-          }
-
-          // Skip the segments we just processed
-          i = groupEnd - 1;
-        }
-      }
-    }
-
-    // Verify temporal continuity and log details
-    let hasOverlaps = false;
-    let hasLargeGaps = false;
-    for (let i = 1; i < aligned.length; i++) {
-      const gap = aligned[i].startTime - aligned[i - 1].endTime;
-      if (gap < 0) {
-        this.logger.warn(`Segment overlap in alignment: ${i - 1} → ${i}`, {
-          gap: gap.toFixed(3) + 's'
-        });
-        hasOverlaps = true;
-      }
-      if (gap > 5) { // Gap > 5 seconds
-        this.logger.warn(`Large gap in alignment: ${i - 1} → ${i}`, {
-          gap: gap.toFixed(3) + 's'
-        });
-        hasLargeGaps = true;
-      }
-    }
-
-    this.logger.info('Segment alignment complete', {
-      strategy,
-      translatedCount: translatedSegments.length,
-      whisperCount: whisperSegments.length,
-      alignedCount: aligned.length,
-      firstSegment: {
-        start: aligned[0]?.startTime.toFixed(2),
-        end: aligned[0]?.endTime.toFixed(2),
-        text: aligned[0]?.text?.substring(0, 50)
-      },
-      lastSegment: {
-        start: aligned[aligned.length - 1]?.startTime.toFixed(2),
-        end: aligned[aligned.length - 1]?.endTime.toFixed(2),
-        text: aligned[aligned.length - 1]?.text?.substring(0, 50)
-      },
-      totalDuration: (aligned[aligned.length - 1]?.endTime - aligned[0]?.startTime).toFixed(2) + 's',
-      hasIssues: hasOverlaps || hasLargeGaps
-    });
-
-    return aligned;
-  }
-
-  /**
-   * Group consecutive Whisper segments into sentence-level units.
-   * A new group starts after sentence-terminating punctuation (.!?…), or when
-   * the merged duration would exceed maxGroupDuration. This dramatically
-   * reduces the number of separate TTS calls and lets Edge TTS produce a
-   * natural intonation contour over a whole sentence instead of fragments.
-   *
-   * Why: lip-sync needs to match phrase boundaries, not every word — the eye
-   * tolerates 100-300ms drift inside a phrase but notices sentence-start
-   * misalignment. Trade-off: slightly looser intra-sentence sync for
-   * dramatically more natural prosody.
-   */
-  private groupWhisperSegmentsBySentence(
-    whisperSegments: any[],
-    maxGroupDuration: number = 12
-  ): Array<{ start: number; end: number; text: string; sourceCount: number }> {
-    if (whisperSegments.length === 0) return [];
-
-    const endsSentence = (text: string): boolean =>
-      /[.!?…。！？।]["')\]\s]*$/.test(text);
-
-    const groups: Array<{ start: number; end: number; text: string; sourceCount: number }> = [];
-    let current = {
-      start: whisperSegments[0].start,
-      end: whisperSegments[0].end,
-      text: (whisperSegments[0].text || '').trim(),
-      sourceCount: 1
-    };
-
-    for (let i = 1; i < whisperSegments.length; i++) {
-      const seg = whisperSegments[i];
-      const segText = (seg.text || '').trim();
-      const mergedDuration = seg.end - current.start;
-      const shouldClose = endsSentence(current.text) || mergedDuration > maxGroupDuration;
-
-      if (shouldClose) {
-        groups.push(current);
-        current = { start: seg.start, end: seg.end, text: segText, sourceCount: 1 };
-      } else {
-        current.end = seg.end;
-        current.text = (current.text + ' ' + segText).trim();
-        current.sourceCount += 1;
-      }
-    }
-    groups.push(current);
-
-    return groups;
-  }
-
-  /**
-   * Split text into exact number of segments proportionally
-   * This ensures 1:1 mapping with Whisper segments for perfect alignment
-   * GUARANTEES to return exactly targetSegmentCount segments
-   */
-  private splitTextProportionally(text: string, targetSegmentCount: number): string[] {
-    if (targetSegmentCount <= 0) {
-      return [text];
-    }
-
-    if (targetSegmentCount === 1) {
-      return [text];
-    }
-
-    const result: string[] = [];
-    const totalChars = text.length;
-    const charsPerSegment = totalChars / targetSegmentCount;
-
-    let currentPos = 0;
-
-    for (let i = 0; i < targetSegmentCount; i++) {
-      // Calculate the ideal end position for this segment
-      const idealEndPos = Math.round((i + 1) * charsPerSegment);
-
-      if (i === targetSegmentCount - 1) {
-        // Last segment - take all remaining text
-        const segment = text.substring(currentPos).trim();
-        result.push(segment.length > 0 ? segment : ' '); // Never return empty
-      } else {
-        // Find the best break point near idealEndPos
-        let breakPos = idealEndPos;
-
-        // Search window: ±20% of segment size
-        const searchWindow = Math.floor(charsPerSegment * 0.2);
-        const searchStart = Math.max(currentPos + 1, idealEndPos - searchWindow);
-        const searchEnd = Math.min(totalChars - 1, idealEndPos + searchWindow);
-
-        // Try to find a good break point in order of preference
-        const breakChars = ['. ', '! ', '? ', '; ', ', ', ' ', '.', '!', '?', ';', ','];
-        let bestBreakPos = -1;
-        let bestBreakScore = Infinity;
-
-        for (const breakChar of breakChars) {
-          let searchPos = searchStart;
-          while (searchPos < searchEnd) {
-            const pos = text.indexOf(breakChar, searchPos);
-            if (pos === -1 || pos >= searchEnd) break;
-
-            // Score based on distance from ideal and quality of break
-            const distance = Math.abs(pos - idealEndPos);
-            const score = distance;
-
-            if (score < bestBreakScore) {
-              bestBreakScore = score;
-              bestBreakPos = pos + breakChar.length;
-            }
-
-            searchPos = pos + 1;
-          }
-
-          // If we found a good break, use it
-          if (bestBreakPos !== -1 && bestBreakScore < searchWindow) {
-            break;
-          }
-        }
-
-        if (bestBreakPos !== -1) {
-          breakPos = bestBreakPos;
-        }
-
-        // Ensure we don't go past the text
-        breakPos = Math.min(breakPos, totalChars);
-
-        // Ensure we make progress
-        if (breakPos <= currentPos) {
-          breakPos = Math.min(currentPos + Math.ceil(charsPerSegment), totalChars);
-        }
-
-        const segment = text.substring(currentPos, breakPos).trim();
-        result.push(segment.length > 0 ? segment : ' '); // Never return empty
-        currentPos = breakPos;
-      }
-    }
-
-    // GUARANTEE: Always return exactly targetSegmentCount segments
-    while (result.length < targetSegmentCount) {
-      result.push(' ');
-    }
-
-    if (result.length > targetSegmentCount) {
-      result.splice(targetSegmentCount);
-    }
-
-    return result;
   }
 
   /**
@@ -999,44 +651,6 @@ export class TTSService {
    */
   private async generateSpeechEdgeTTS(text: string, voice: string, outputPath: string): Promise<void> {
     await this.generateSpeechEdgeTTSWithRate(text, voice, outputPath, '+0%');
-  }
-
-  /**
-   * Predict TTS duration for a given target duration based on calibration samples
-   * Uses linear interpolation/extrapolation from calibration data
-   */
-  private predictTTSDuration(
-    targetDuration: number,
-    calibrationSamples: Array<{ targetDuration: number; actualDuration: number; textLength: number }>
-  ): number {
-    if (calibrationSamples.length === 0) {
-      return targetDuration; // No calibration data, assume perfect match
-    }
-
-    // Find closest calibration samples by target duration
-    const sorted = [...calibrationSamples].sort((a, b) =>
-      Math.abs(a.targetDuration - targetDuration) - Math.abs(b.targetDuration - targetDuration)
-    );
-
-    // Use weighted average of 3 closest samples (or all if less than 3)
-    const samplesToUse = Math.min(3, sorted.length);
-    let totalWeight = 0;
-    let weightedPrediction = 0;
-
-    for (let i = 0; i < samplesToUse; i++) {
-      const sample = sorted[i];
-      const distance = Math.abs(sample.targetDuration - targetDuration);
-      const weight = 1 / (1 + distance); // Inverse distance weighting
-
-      // Calculate ratio for this sample and apply to target
-      const ratio = sample.actualDuration / sample.targetDuration;
-      const prediction = targetDuration * ratio;
-
-      weightedPrediction += prediction * weight;
-      totalWeight += weight;
-    }
-
-    return weightedPrediction / totalWeight;
   }
 
   /**

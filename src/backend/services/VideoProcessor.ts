@@ -10,6 +10,7 @@ import { WhisperService } from './WhisperService';
 import { TranslationService } from './TranslationService';
 import { TTSService } from './TTSService';
 import { VideoRemux } from './VideoRemux';
+import { groupSegmentsBySentence, type TimedText } from '../utils/speech-groups';
 import type { ProcessRequest, ProcessResult, ProcessStage, ProgressUpdate } from '../../shared/types';
 import type { TempPaths } from '../types';
 
@@ -46,11 +47,11 @@ export class VideoProcessor extends EventEmitter {
       }
 
       // Step 4: Translate text
-      const translatedText = await this.translate(transcription.text, transcription.language);
+      const translation = await this.translate(transcription.text, transcription.language);
       if (this.cancelled) throw new Error('Process cancelled by user');
 
       // Step 5: Text-to-Speech (with duration matching for lip-sync)
-      const ttsAudioPath = await this.synthesizeSpeech(translatedText, audioPath);
+      const ttsAudioPath = await this.synthesizeSpeech(translation.text, audioPath, translation.alignedSegments);
       if (this.cancelled) throw new Error('Process cancelled by user');
 
       // Step 6: Remux video
@@ -158,10 +159,36 @@ export class VideoProcessor extends EventEmitter {
     return result;
   }
 
-  private async translate(text: string, sourceLanguage: string): Promise<string> {
+  /**
+   * With Whisper timestamps, translate phrase by phrase so each translated
+   * phrase keeps the timing of the speech it replaces; otherwise translate
+   * the whole text.
+   */
+  private async translate(
+    text: string,
+    sourceLanguage: string
+  ): Promise<{ text: string; alignedSegments?: TimedText[] }> {
     this.emitProgress('TRANSLATING', 60, `Translating to ${this.request.targetLanguage}...`);
 
     const translator = new TranslationService(this.logger);
+
+    if (this.whisperSegments && this.whisperSegments.length > 0) {
+      const groups = groupSegmentsBySentence(this.whisperSegments);
+      const translations = await translator.translateSegments(
+        groups.map(g => g.text),
+        sourceLanguage,
+        this.request.targetLanguage
+      );
+      const alignedSegments = groups.map((g, i) => ({ start: g.start, end: g.end, text: translations[i] }));
+      this.logger.info('Translated phrase by phrase', {
+        whisperSegments: this.whisperSegments.length,
+        phrases: groups.length
+      });
+
+      this.emitProgress('TRANSLATING', 70, 'Translation complete');
+      return { text: translations.join(' '), alignedSegments };
+    }
+
     const translatedText = await translator.translate(
       text,
       sourceLanguage,
@@ -169,10 +196,10 @@ export class VideoProcessor extends EventEmitter {
     );
 
     this.emitProgress('TRANSLATING', 70, 'Translation complete');
-    return translatedText;
+    return { text: translatedText };
   }
 
-  private async synthesizeSpeech(text: string, originalAudioPath: string): Promise<string> {
+  private async synthesizeSpeech(text: string, originalAudioPath: string, alignedSegments?: TimedText[]): Promise<string> {
     this.emitProgress('SYNTHESIZING', 75, 'Generating speech from translated text...');
 
     const tts = new TTSService(this.logger);
@@ -181,7 +208,7 @@ export class VideoProcessor extends EventEmitter {
       this.request.targetLanguage,
       this.tempPaths!.ttsAudioPath,
       originalAudioPath, // Pass original audio for duration matching
-      this.whisperSegments // Pass Whisper segments for timestamp-based lip-sync
+      alignedSegments // Translated phrases with their source timestamps, for lip-sync
     );
 
     this.emitProgress('SYNTHESIZING', 85, 'Speech synthesis complete');

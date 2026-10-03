@@ -32,7 +32,7 @@ The application features an intuitive interface with:
 - **Operating System**: Windows 10/11 (64-bit)
 - **RAM**: 4GB minimum, 8GB recommended
 - **Storage**: 2GB free space for models and processing
-- **GPU** (optional): NVIDIA GPU with CUDA 12.6.0 support for faster transcription
+- **GPU** (optional): NVIDIA GPU with CUDA 12 support (driver 551.61+) for faster transcription
 
 ### Software Requirements
 - **Node.js**: v22.12 or higher (to build and run from source)
@@ -93,8 +93,8 @@ npm run setup:large    # Highest quality (3.1 GB)
 ```
 
 The setup script will automatically:
-1. **Check for CUDA binaries** (whisper.dll and CUDA DLLs)
-2. **Download missing binaries** from official Whisper.cpp releases (~15 MB)
+1. **Check for Whisper.cpp binaries** (whisper-cli.exe, ggml/CUDA DLLs) and replace outdated ones
+2. **Download missing binaries** from the official Whisper.cpp v1.9.2 release (~640 MB)
 3. **Extract and install** them to `whisper-bin/` directory
 4. **Download the selected Whisper AI model**
 5. **Verify GPU support** and installation
@@ -124,8 +124,8 @@ To verify GPU support:
 - Check GPU usage during transcription using Task Manager
 
 **Requirements for GPU acceleration:**
-- NVIDIA GPU with CUDA Compute Capability 3.0+
-- NVIDIA Driver 522.06 or newer
+- NVIDIA GPU with CUDA Compute Capability 5.0+ (GeForce GTX 900 series or newer)
+- NVIDIA Driver 551.61 or newer (CUDA 12.4)
 - Windows 10/11 64-bit
 
 ## Usage
@@ -302,7 +302,7 @@ INPUT: Video File or YouTube URL
 ┌─────────────────────────────────────────────────────────────────────┐
 │ 3. SPEECH RECOGNITION (Whisper.cpp + CUDA)                          │
 │    • Loads GGML model (tiny/base/small/medium/large)                │
-│    • GPU acceleration via CUDA 12.6.0 (if available)                │
+│    • GPU acceleration via CUDA 12.4 (if available)                  │
 │    • Extracts text with phrase-level timestamps                     │
 │    • Auto-detects source language                                   │
 │    Output: Transcribed text in original language                    │
@@ -399,7 +399,7 @@ OUTPUT: Translated Video (video_translated_to_{language}.mp4)
 ### GPU Not Detected
 - Ensure you have an NVIDIA GPU with CUDA support
 - Install latest NVIDIA drivers
-- CUDA 12.6.0 support is required
+- NVIDIA driver 551.61 or newer is required (CUDA 12.4)
 
 ### Translation Fails
 - Check internet connection
@@ -442,7 +442,7 @@ OUTPUT: Translated Video (video_translated_to_{language}.mp4)
 - **TypeScript 6.0** - Type-safe development
 - **Express 5.2** - Backend server
 - **Socket.IO 4.8** - Real-time communication
-- **Whisper.cpp 1.6.2** - Speech recognition (CUDA 12.6.0)
+- **Whisper.cpp 1.9.2** - Speech recognition (CUDA 12.4)
 - **FFmpeg** - Video/audio processing
 - **Google Translate API** - Translation service
 - **Microsoft Edge TTS** - Neural text-to-speech synthesis

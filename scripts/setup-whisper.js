@@ -11,14 +11,24 @@ const WHISPER_BIN_DIR = path.join(__dirname, '..', 'whisper-bin');
 const MODELS_DIR = path.join(WHISPER_BIN_DIR, 'models');
 
 // Whisper.cpp CUDA binaries configuration
-const WHISPER_CPP_RELEASE = 'v1.6.2'; // Latest stable release with CUDA support
-const CUDA_BINARIES = {
-  'whisper.dll': {
-    url: `https://github.com/ggerganov/whisper.cpp/releases/download/${WHISPER_CPP_RELEASE}/whisper-cublas-${WHISPER_CPP_RELEASE}-bin-x64.zip`,
-    size: '~15 MB',
-    isArchive: true
-  }
+// v1.9.2 is the latest stable release that publishes Windows binaries (later
+// tags have no assets). Since 1.7 the CLI is whisper-cli.exe; main.exe is
+// only a deprecation stub.
+const WHISPER_CPP_RELEASE = 'v1.9.2';
+const CUDA_ARCHIVE = {
+  url: `https://github.com/ggml-org/whisper.cpp/releases/download/${WHISPER_CPP_RELEASE}/whisper-cublas-12.4.0-bin-x64.zip`,
+  size: '~640 MB',
+  folder: 'Release' // top-level folder inside the archive
 };
+
+// Files the app needs from the archive (the rest are examples and tools).
+// ggml-cpu-*.dll are the CPU backends ggml picks from at runtime (also used
+// without an NVIDIA GPU, or with GPU disabled).
+const REQUIRED_BINARIES = [
+  'whisper-cli.exe', 'whisper.dll', 'ggml.dll', 'ggml-base.dll', 'ggml-cuda.dll',
+  'cublas64_12.dll', 'cublasLt64_12.dll', 'cudart64_12.dll'
+];
+const isRequiredBinary = (file) => REQUIRED_BINARIES.includes(file) || /^ggml-cpu-.+\.dll$/.test(file);
 
 const MODELS = {
   tiny: {
@@ -85,8 +95,8 @@ function downloadFile(url, destinationPath, onProgress) {
     let totalBytes = 0;
 
     https.get(url, (response) => {
-      // Handle redirects
-      if (response.statusCode === 302 || response.statusCode === 301) {
+      // Handle redirects (GitHub release assets redirect to a CDN)
+      if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
         file.close();
         fs.unlinkSync(destinationPath);
         return downloadFile(response.headers.location, destinationPath, onProgress)
@@ -243,10 +253,9 @@ function checkGPUSupport() {
 function checkCudaBinaries() {
   log('\nChecking Whisper.cpp CUDA binaries...', colors.cyan);
 
-  const requiredFiles = ['whisper.dll', 'cublas64_12.dll', 'cublasLt64_12.dll', 'cudart64_12.dll'];
   const missingFiles = [];
 
-  for (const file of requiredFiles) {
+  for (const file of REQUIRED_BINARIES) {
     const filePath = path.join(WHISPER_BIN_DIR, file);
     if (!fs.existsSync(filePath)) {
       missingFiles.push(file);
@@ -258,12 +267,16 @@ function checkCudaBinaries() {
     return true;
   } else {
     log(`✗ Missing CUDA binaries: ${missingFiles.join(', ')}`, colors.yellow);
+    if (fs.existsSync(path.join(WHISPER_BIN_DIR, 'main.exe'))) {
+      log(`  Found binaries from an older Whisper.cpp release: they will be replaced with ${WHISPER_CPP_RELEASE}.`, colors.yellow);
+    }
     return false;
   }
 }
 
 async function downloadAndExtractZip(url, destDir, onProgress) {
   const tempZipPath = path.join(destDir, 'temp_download.zip');
+  const extractDir = path.join(destDir, 'temp_extract');
 
   try {
     // Download ZIP file
@@ -272,38 +285,39 @@ async function downloadAndExtractZip(url, destDir, onProgress) {
     log('\nExtracting archive...', colors.cyan);
 
     // Use PowerShell to extract on Windows (built-in, no external dependencies)
-    const extractCommand = `powershell -command "Expand-Archive -Path '${tempZipPath}' -DestinationPath '${destDir}' -Force"`;
+    const extractCommand = `powershell -NoProfile -command "Expand-Archive -Path '${tempZipPath}' -DestinationPath '${extractDir}' -Force"`;
 
     try {
       execSync(extractCommand, { stdio: 'ignore' });
-      log('✓ Archive extracted successfully!', colors.green);
-
-      // Move DLL files from extracted subdirectory to whisper-bin root
-      const extractedDir = path.join(destDir, 'whisper-cublas-' + WHISPER_CPP_RELEASE + '-bin-x64');
-      if (fs.existsSync(extractedDir)) {
-        const files = fs.readdirSync(extractedDir);
-        for (const file of files) {
-          if (file.endsWith('.dll')) {
-            const srcPath = path.join(extractedDir, file);
-            const destPath = path.join(destDir, file);
-            fs.copyFileSync(srcPath, destPath);
-            log(`  ✓ Copied ${file}`, colors.green);
-          }
-        }
-        // Clean up extracted directory
-        fs.rmSync(extractedDir, { recursive: true, force: true });
-      }
-
     } catch (error) {
       log('✗ Failed to extract archive with PowerShell', colors.red);
       throw new Error('Extraction failed. Please extract manually or ensure PowerShell is available.');
     }
+    log('✓ Archive extracted successfully!', colors.green);
 
+    const releaseDir = path.join(extractDir, CUDA_ARCHIVE.folder);
+    if (!fs.existsSync(releaseDir)) {
+      throw new Error(`Unexpected archive layout: '${CUDA_ARCHIVE.folder}' folder not found`);
+    }
+
+    // Copy only what the app needs into whisper-bin
+    for (const file of fs.readdirSync(releaseDir).filter(isRequiredBinary)) {
+      fs.copyFileSync(path.join(releaseDir, file), path.join(destDir, file));
+      log(`  ✓ Installed ${file}`, colors.green);
+    }
+
+    // main.exe from older releases would be picked up by mistake: remove it
+    const legacyMain = path.join(destDir, 'main.exe');
+    if (fs.existsSync(legacyMain)) {
+      fs.unlinkSync(legacyMain);
+      log('  ✓ Removed legacy main.exe', colors.green);
+    }
   } finally {
-    // Clean up temp ZIP file
+    // Clean up temp files
     if (fs.existsSync(tempZipPath)) {
       fs.unlinkSync(tempZipPath);
     }
+    fs.rmSync(extractDir, { recursive: true, force: true });
   }
 }
 
@@ -314,9 +328,9 @@ async function downloadCudaBinaries() {
 
   log('\nThis will download the official Whisper.cpp binaries with CUDA support.', colors.reset);
   log('Required for GPU acceleration (NVIDIA GPUs only).', colors.reset);
-  log(`Release: ${WHISPER_CPP_RELEASE}`, colors.cyan);
+  log(`Release: ${WHISPER_CPP_RELEASE} (${CUDA_ARCHIVE.size})`, colors.cyan);
 
-  const zipUrl = CUDA_BINARIES['whisper.dll'].url;
+  const zipUrl = CUDA_ARCHIVE.url;
 
   log(`\nDownloading from: ${zipUrl}\n`, colors.cyan);
 
@@ -366,7 +380,7 @@ async function setupCudaBinariesIfNeeded() {
       } catch (error) {
         log(`\n✗ Error downloading binaries: ${error.message}`, colors.red);
         log('\nYou can download them manually from:', colors.yellow);
-        log(`  ${CUDA_BINARIES['whisper.dll'].url}`, colors.cyan);
+        log(`  ${CUDA_ARCHIVE.url}`, colors.cyan);
         log('\nSee whisper-bin/README.md for detailed instructions.', colors.yellow);
       }
     } else {

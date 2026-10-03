@@ -36,7 +36,11 @@ export class WhisperService {
 
     // Binaries ship with the app; models are downloaded to a writable folder
     // in the installed app (the resources folder is read-only there).
-    this.whisperBinPath = path.join(getResourcesDir(), 'whisper-bin', 'main.exe');
+    // whisper.cpp >= 1.7 ships whisper-cli.exe and turns main.exe into a stub
+    // that only prints a deprecation warning; main.exe is the pre-1.7 binary.
+    const binDir = path.join(getResourcesDir(), 'whisper-bin');
+    const cli = path.join(binDir, 'whisper-cli.exe');
+    this.whisperBinPath = fs.existsSync(cli) ? cli : path.join(binDir, 'main.exe');
     this.modelsPath = isPackaged()
       ? path.join(getDataDir(), 'models')
       : path.join(getResourcesDir(), 'whisper-bin', 'models');

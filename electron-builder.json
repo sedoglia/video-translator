@@ -19,7 +19,7 @@
     {
       "from": "whisper-bin",
       "to": "whisper-bin",
-      "filter": ["main.exe", "*.dll"]
+      "filter": ["whisper-cli.exe", "main.exe", "*.dll"]
     }
   ],
   "win": {

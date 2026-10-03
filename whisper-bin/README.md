@@ -1,6 +1,6 @@
 # Whisper.cpp CUDA Binaries
 
-This directory contains the Whisper.cpp binaries with CUDA support for GPU acceleration.
+This directory contains the Whisper.cpp binaries with CUDA support for GPU acceleration (release **v1.9.2**, CUDA 12.4).
 
 ## ⭐ Automatic Installation (Recommended)
 
@@ -11,11 +11,13 @@ npm run setup
 ```
 
 This single command will automatically:
-- ✅ Check for missing CUDA binaries
-- ✅ Download them from official Whisper.cpp releases (~15 MB)
-- ✅ Extract and install to this directory
+- ✅ Check for missing (or outdated) binaries
+- ✅ Download the official Whisper.cpp v1.9.2 CUDA release (~640 MB)
+- ✅ Install only the files the app needs into this directory
 - ✅ Download the Whisper AI model
 - ✅ Verify installation
+
+Binaries from older Whisper.cpp releases (with `main.exe`) are detected and replaced.
 
 **No manual steps required!** Everything is handled automatically.
 
@@ -23,32 +25,23 @@ This single command will automatically:
 
 ## Manual Installation (Alternative)
 
-Due to GitHub's file size limitations (100 MB max), the CUDA DLL files are not included in this repository by default.
+Due to GitHub's file size limitations (100 MB max), the binaries are not included in this repository.
 
 ### Files needed:
 
-- `whisper.dll` - Main Whisper.cpp library
-- `cublas64_12.dll` - CUDA BLAS library (~100 MB)
-- `cublasLt64_12.dll` - CUDA BLAS Light library (~507 MB)
-- `cudart64_12.dll` - CUDA Runtime library
+- `whisper-cli.exe` - Whisper.cpp command-line program
+- `whisper.dll`, `ggml.dll`, `ggml-base.dll` - Whisper.cpp / ggml libraries
+- `ggml-cuda.dll` - CUDA backend (~512 MB)
+- `ggml-cpu-*.dll` - CPU backends (one is picked at runtime for your processor)
+- `cublas64_12.dll`, `cublasLt64_12.dll`, `cudart64_12.dll` - CUDA 12 runtime libraries
 
-### Download Options:
+### Download:
 
-#### Option 1: Official Whisper.cpp Release (Recommended)
-1. Visit: https://github.com/ggerganov/whisper.cpp/releases
-2. Download the latest CUDA-enabled release for Windows
-3. Extract the DLL files to this directory (`whisper-bin/`)
+1. Download `whisper-cublas-12.4.0-bin-x64.zip` from the [Whisper.cpp v1.9.2 release](https://github.com/ggml-org/whisper.cpp/releases/tag/v1.9.2)
+2. Open the `Release` folder inside the archive
+3. Copy the files listed above into this directory (`whisper-bin/`)
 
-#### Option 2: Build from Source
-1. Clone: https://github.com/ggerganov/whisper.cpp
-2. Follow build instructions with CUDA support
-3. Copy resulting DLL files to this directory
-
-#### Option 3: CUDA Toolkit (For DLL files only)
-1. Download NVIDIA CUDA Toolkit 12.6.0: https://developer.nvidia.com/cuda-downloads
-2. After installation, copy the required DLL files from:
-   - `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin\`
-3. For `whisper.dll`, use Option 1 or 2 above
+Since Whisper.cpp 1.7, `main.exe` is only a stub that prints a deprecation warning: use `whisper-cli.exe`.
 
 ## Whisper Models
 
@@ -63,25 +56,26 @@ Models are stored in `whisper-bin/models/` and cached after first download.
 
 ## Verification
 
-After placing the DLL files, run the application to verify:
+After placing the files, run the application to verify:
 - The app will show "✓ CUDA GPU detected" if properly configured
 - Check GPU usage in Task Manager during transcription
 
 ## GPU Requirements
 
-- NVIDIA GPU with CUDA Compute Capability 3.0+
-- NVIDIA Driver 522.06 or newer
+- NVIDIA GPU with CUDA Compute Capability 5.0+ (GeForce GTX 900 series or newer)
+- NVIDIA Driver 551.61 or newer (CUDA 12.4)
 - Windows 10/11 64-bit
+
+Without a compatible NVIDIA GPU, Whisper.cpp runs on the CPU (much slower).
 
 ## Troubleshooting
 
 **GPU not detected:**
-- Ensure all DLL files are in the `whisper-bin/` directory
-- Install latest NVIDIA drivers
-- Verify CUDA 12.6.0 compatibility
+- Ensure all files listed above are in the `whisper-bin/` directory
+- Update the NVIDIA driver to 551.61 or newer
 
 **Missing DLL errors:**
-- Download missing files from CUDA Toolkit
+- Run `npm run setup` again to reinstall the binaries
 - Ensure files are not blocked (right-click > Properties > Unblock)
 
 ---

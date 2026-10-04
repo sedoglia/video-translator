@@ -131,10 +131,9 @@ export class WhisperService {
         this.logger.debug('GPU acceleration enabled for Whisper (CUDA)');
       }
 
-      // Add language if specified
-      if (language && language !== 'auto') {
-        args.push('-l', language);
-      }
+      // whisper-cli assumes English when -l is omitted: auto-detection must be
+      // requested explicitly
+      args.push('-l', language && language !== 'auto' ? language : 'auto');
 
       // Execute whisper.cpp
       const { stdout, stderr } = await execFileAsync(this.whisperBinPath, args, {
@@ -155,10 +154,12 @@ export class WhisperService {
 
       // Parse JSON output for timestamps
       let segments: any[] = [];
+      let reportedLanguage: string | undefined;
       if (fs.existsSync(outputJsonPath)) {
         try {
           const jsonContent = fs.readFileSync(outputJsonPath, 'utf-8');
           const jsonData = JSON.parse(jsonContent);
+          reportedLanguage = jsonData.result?.language;
 
           this.logger.debug('Whisper JSON structure', {
             keys: Object.keys(jsonData),
@@ -271,7 +272,17 @@ export class WhisperService {
         // Ignore cleanup errors
       }
 
-      const detectedLanguage = language !== 'auto' ? language : 'en';
+      // With auto-detect, use the language Whisper found (JSON result, or the
+      // "auto-detected language: xx" line on stderr): it drives translation
+      // and the TTS voice.
+      let detectedLanguage = language;
+      if (!language || language === 'auto') {
+        const fromStderr = stderr.match(/auto-detected language:\s*([a-z]{2,3})/)?.[1];
+        detectedLanguage = reportedLanguage || fromStderr || 'en';
+        if (!reportedLanguage && !fromStderr) {
+          this.logger.warn('Whisper did not report the detected language, assuming English');
+        }
+      }
 
       this.logger.stage(
         'TRANSCRIBING',
